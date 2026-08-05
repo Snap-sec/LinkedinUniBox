@@ -5,8 +5,7 @@ import {
   UserCheck, Users, MessageSquare, TrendingUp,
   ArrowUpRight, RefreshCw, ArrowRight, Inbox
 } from 'lucide-react';
-
-const API_BASE = 'http://localhost:5000/api';
+import { API_BASE } from '../config';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const T = {

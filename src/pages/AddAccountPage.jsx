@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, Check, AlertCircle, Shield, Cookie, User, Sparkles, CheckCircle2 } from 'lucide-react';
 import LinkedinIcon from '../components/LinkedinIcon';
-import { useToast } from '../context/ToastContext';
+import { API_BASE } from '../config';
 
 export default function AddAccountPage() {
   const navigate = useNavigate();
@@ -49,7 +49,7 @@ export default function AddAccountPage() {
 
     setIsSubmitting(true);
     try {
-      const response = await fetch('http://localhost:5000/api/accounts/add', {
+      const response = await fetch(`${API_BASE}/accounts/add`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

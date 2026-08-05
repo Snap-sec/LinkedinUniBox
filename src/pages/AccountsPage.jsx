@@ -6,8 +6,7 @@ import {
   RefreshCw, Globe, Check, Plus, Shield,
   Download, Play, Puzzle
 } from 'lucide-react';
-
-const API_BASE = 'http://localhost:5000/api';
+import { API_BASE } from '../config';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const T = {

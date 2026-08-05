@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Mail, ArrowRight, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import LinkedinIcon from '../components/LinkedinIcon';
-
-const API_BASE = 'http://localhost:5000/api';
+import { API_BASE } from '../config';
 
 const T = {
   bg: '#FAFAFA',
@@ -17,8 +16,8 @@ const T = {
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('imran@snapsec.co');
-  const [password, setPassword] = useState('HackMeNot@1121');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -45,15 +44,7 @@ export default function LoginPage() {
         setError(data.error || 'Invalid credentials');
       }
     } catch (err) {
-      // Fallback for local validation if server is restarting
-      if (email.trim().toLowerCase() === 'imran@snapsec.co' && password === 'HackMeNot@1121') {
-        const user = { email: 'imran@snapsec.co', name: 'Imran Parray', role: 'Administrator' };
-        localStorage.setItem('auth_token', 'session_token_imran_snapsec');
-        localStorage.setItem('user_data', JSON.stringify(user));
-        navigate('/dashboard');
-      } else {
-        setError('Invalid email or password');
-      }
+      setError('Unable to connect to login server. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -120,7 +111,7 @@ export default function LoginPage() {
                   required
                   value={email}
                   onChange={e => setEmail(e.target.value)}
-                  placeholder="imran@snapsec.co"
+                  placeholder="name@company.com"
                   className="login-input"
                   style={{
                     width: '100%', padding: '9px 12px 9px 36px', borderRadius: 8,
@@ -181,13 +172,6 @@ export default function LoginPage() {
               {!isLoading && <ArrowRight size={15} />}
             </button>
           </form>
-        </div>
-
-        {/* Demo Credentials hint */}
-        <div style={{ textAlign: 'center', marginTop: 20 }}>
-          <span style={{ fontSize: 11, color: T.textMuted }}>
-            Authorized Account: <strong>imran@snapsec.co</strong>
-          </span>
         </div>
       </div>
     </div>

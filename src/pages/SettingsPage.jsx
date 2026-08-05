@@ -5,8 +5,7 @@ import {
   Layers, AlertCircle, Sparkles, Key, Eye, EyeOff, Save, X, Bot, FileText
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
-
-const API_BASE = 'http://localhost:5000/api';
+import { API_BASE } from '../config';
 
 // ─── Design tokens matching DashboardPage ──────────────────────────────────────
 const T = {

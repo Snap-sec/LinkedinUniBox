@@ -7,8 +7,7 @@ import {
   ChevronLeft, ChevronRight, UserCheck, Inbox, ArrowLeft,
   ArrowUp, ArrowDown, Sparkles
 } from 'lucide-react';
-
-const API_BASE = 'http://localhost:5000/api';
+import { API_BASE } from '../config';
 
 const LEAD_STAGES = [
   'New Lead', 'Interested', 'Demo Scheduled',

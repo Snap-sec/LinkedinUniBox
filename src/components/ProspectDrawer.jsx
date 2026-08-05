@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MessageSquare, List, Plus, X, Archive } from 'lucide-react';
 import LinkedinIcon from './LinkedinIcon';
-import { useToast } from '../context/ToastContext';
-
-const API_BASE = 'http://localhost:5000/api';
+import { API_BASE } from '../config';
 
 export default function ProspectDrawer({ conversation, onClose, onUpdateLeadStage, onToggleArchive }) {
   const { toast } = useToast();

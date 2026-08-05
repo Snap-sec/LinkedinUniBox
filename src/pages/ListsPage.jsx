@@ -5,8 +5,7 @@ import {
   Plus, Trash2, Edit3, Check, X, Users, ChevronRight, List, AlertCircle
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
-
-const API_BASE = 'http://localhost:5000/api';
+import { API_BASE } from '../config';
 
 const T = {
   bg: '#FAFAFA',
