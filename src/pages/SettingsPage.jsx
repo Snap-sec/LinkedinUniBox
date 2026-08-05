@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import Sidebar from '../components/Sidebar';
 import {
   Plus, Trash2, Edit3, ArrowUp, ArrowDown, Check,
-  Layers, AlertCircle, Sparkles, Key, Eye, EyeOff, Save, X, Bot, FileText
+  Layers, AlertCircle, Sparkles, Key, Eye, EyeOff, Save, X, Bot, FileText,
+  Brain, TrendingUp, Play, RefreshCw, Zap, Clock, Target, RotateCcw
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { API_BASE } from '../config';
@@ -93,6 +94,12 @@ export default function SettingsPage() {
   const [editingPrompt, setEditingPrompt] = useState(null);
   const [savingPrompt, setSavingPrompt] = useState(false);
 
+  // Buyer Intent State
+  const [buyerIntentStats, setBuyerIntentStats] = useState(null);
+  const [loadingBuyerIntent, setLoadingBuyerIntent] = useState(false);
+  const [runningBuyerIntent, setRunningBuyerIntent] = useState(false);
+  const [runningForceBuyerIntent, setRunningForceBuyerIntent] = useState(false);
+
   const [notification, setNotification] = useState(null);
 
   const notify = (msg, type = 'success') => {
@@ -103,7 +110,48 @@ export default function SettingsPage() {
   useEffect(() => {
     fetchStages();
     fetchAiConfig();
+    fetchBuyerIntentStats();
   }, []);
+
+  const fetchBuyerIntentStats = async () => {
+    setLoadingBuyerIntent(true);
+    try {
+      const res = await fetch(`${API_BASE}/settings/buyer-intent/status`);
+      if (res.ok) {
+        const statsData = await res.json();
+        setBuyerIntentStats(statsData);
+      }
+    } catch (e) {
+      console.error('Failed to fetch Buyer Intent stats', e);
+    } finally {
+      setLoadingBuyerIntent(false);
+    }
+  };
+
+  const handleRunBuyerIntent = async (forceAll = false) => {
+    if (forceAll) setRunningForceBuyerIntent(true);
+    else setRunningBuyerIntent(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/settings/buyer-intent/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ forceAll })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(`Buyer Intent Evaluation complete! Evaluated ${data.result?.processed || 0} leads.`);
+        await fetchBuyerIntentStats();
+      } else {
+        toast.error(data.error || 'Failed to run Buyer Intent evaluation');
+      }
+    } catch (e) {
+      toast.error('Network error executing Buyer Intent evaluation');
+    } finally {
+      setRunningBuyerIntent(false);
+      setRunningForceBuyerIntent(false);
+    }
+  };
 
   const fetchStages = async () => {
     setLoading(true);
@@ -300,10 +348,10 @@ export default function SettingsPage() {
   };
 
   return (
-    <div style={{ display: 'flex', background: T.bg, minHeight: '100vh', fontFamily: '-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",sans-serif' }}>
+    <div className="app" style={{ display: 'flex', background: T.bg, height: '100vh', width: '100vw', overflow: 'hidden', fontFamily: '-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",sans-serif' }}>
       <Sidebar unreadCount={0} activePage="settings" />
 
-      <main style={{ flex: 1, padding: '40px 48px', overflowY: 'auto', maxWidth: 1200, margin: '0 auto', width: '100%' }}>
+      <main style={{ flex: 1, height: '100vh', overflowY: 'auto', padding: '40px 48px', maxWidth: 1200, margin: '0 auto', width: '100%' }}>
         
         {/* ── Top Page Header ─────────────────────────────────────────────── */}
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24 }}>
@@ -387,6 +435,29 @@ export default function SettingsPage() {
           >
             <Sparkles size={15} color={activeTab === 'ai' ? '#6366F1' : T.textMuted} />
             AI Config
+          </button>
+
+          <button
+            onClick={() => setActiveTab('buyer-intent')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '10px 4px',
+              fontSize: 13,
+              fontWeight: activeTab === 'buyer-intent' ? 600 : 500,
+              color: activeTab === 'buyer-intent' ? '#10B981' : T.textSecondary,
+              border: 'none',
+              borderBottom: activeTab === 'buyer-intent' ? '2px solid #10B981' : '2px solid transparent',
+              background: 'transparent',
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              marginBottom: '-1px',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <TrendingUp size={15} color={activeTab === 'buyer-intent' ? '#10B981' : T.textMuted} />
+            Buyer Intent Score
           </button>
         </div>
 
@@ -1101,6 +1172,161 @@ export default function SettingsPage() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* ── TAB 3: BUYER INTENT SCORE ───────────────────────────────────── */}
+        {activeTab === 'buyer-intent' && (
+          <div>
+            <SectionHeader
+              title="AI-Driven Buyer Intent Intelligence"
+              sub="Evaluates prospect buying intent every 12 hours using DeepSeek API with strict token limits (max_tokens: 5)."
+            />
+
+            {/* Stat Cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+              <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20 }}>
+                <div style={{ fontSize: 12, color: T.textMuted, fontWeight: 500, marginBottom: 6 }}>Evaluated Leads</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: T.text }}>{buyerIntentStats?.evaluatedLeads ?? '-'}</div>
+                <div style={{ fontSize: 11, color: T.textSecondary, marginTop: 4 }}>Out of {buyerIntentStats?.totalLeads ?? 0} total prospects</div>
+              </div>
+
+              <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20 }}>
+                <div style={{ fontSize: 12, color: T.textMuted, fontWeight: 500, marginBottom: 6 }}>Pending / Due (&gt;12h)</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: (buyerIntentStats?.pendingLeads > 0) ? '#F59E0B' : '#10B981' }}>
+                  {buyerIntentStats?.pendingLeads ?? '-'}
+                </div>
+                <div style={{ fontSize: 11, color: T.textSecondary, marginTop: 4 }}>Requires DeepSeek evaluation</div>
+              </div>
+
+              <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20 }}>
+                <div style={{ fontSize: 12, color: T.textMuted, fontWeight: 500, marginBottom: 6 }}>High Intent (&gt;=70)</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: '#10B981' }}>{buyerIntentStats?.highIntent ?? '-'}</div>
+                <div style={{ fontSize: 11, color: T.textSecondary, marginTop: 4 }}>High receptivity leads</div>
+              </div>
+
+              <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 20 }}>
+                <div style={{ fontSize: 12, color: T.textMuted, fontWeight: 500, marginBottom: 6 }}>Last Evaluation Run</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginTop: 6 }}>
+                  {buyerIntentStats?.lastRunAt ? new Date(buyerIntentStats.lastRunAt).toLocaleString() : 'Not executed yet'}
+                </div>
+                <div style={{ fontSize: 11, color: T.textSecondary, marginTop: 4 }}>Automated 12-hour cron loop</div>
+              </div>
+            </div>
+
+            {/* Action Banner / Control Card */}
+            <div style={{
+              background: T.surface,
+              borderRadius: 12,
+              border: `1px solid ${T.border}`,
+              padding: '24px 28px',
+              marginBottom: 32,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 24
+            }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                  <Zap size={18} color="#10B981" />
+                  <h3 style={{ fontSize: 15, fontWeight: 600, color: T.text, margin: 0 }}>
+                    Token-Optimized Intent Engine
+                  </h3>
+                </div>
+                <p style={{ fontSize: 12, color: T.textMuted, margin: 0, maxWidth: 620, lineHeight: 1.5 }}>
+                  The Buyer Intent cron automatically scans conversations without a score or evaluated more than 12 hours ago. Prompts are strictly constrained (<code>max_tokens: 5</code>) to output numeric scores only, saving 95%+ DeepSeek token cost.
+                </p>
+              </div>
+
+              <button
+                onClick={handleRunBuyerIntent}
+                disabled={runningBuyerIntent || !buyerIntentStats?.hasApiKey}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  background: runningBuyerIntent ? T.textMuted : '#10B981',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '10px 18px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: runningBuyerIntent ? 'not-allowed' : 'pointer',
+                  whiteSpace: 'nowrap',
+                  boxShadow: '0 2px 8px rgba(16, 185, 129, 0.2)'
+                }}
+              >
+                {runningBuyerIntent ? (
+                  <>
+                    <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                    Running Evaluation...
+                  </>
+                ) : (
+                  <>
+                    <Play size={14} />
+                    Run Buyer Intent Analysis Now
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Force Re-evaluate All Leads Card */}
+            <div style={{
+              background: T.surface,
+              borderRadius: 12,
+              border: `1px solid ${T.border}`,
+              padding: '24px 28px',
+              marginBottom: 32,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 24
+            }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                  <RotateCcw size={18} color="#2563EB" />
+                  <h3 style={{ fontSize: 15, fontWeight: 600, color: T.text, margin: 0 }}>
+                    Force Re-evaluate All Leads
+                  </h3>
+                </div>
+                <p style={{ fontSize: 12, color: T.textMuted, margin: 0, maxWidth: 620, lineHeight: 1.5 }}>
+                  Bypasses the 12-hour evaluation cooldown and forces DeepSeek to re-calculate buyer intent scores for all prospects across your database.
+                </p>
+              </div>
+
+              <button
+                onClick={() => handleRunBuyerIntent(true)}
+                disabled={runningBuyerIntent || runningForceBuyerIntent || !buyerIntentStats?.hasApiKey}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  background: runningForceBuyerIntent ? T.textMuted : '#2563EB',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '10px 18px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: (runningBuyerIntent || runningForceBuyerIntent) ? 'not-allowed' : 'pointer',
+                  whiteSpace: 'nowrap',
+                  boxShadow: '0 2px 8px rgba(37, 99, 235, 0.2)'
+                }}
+              >
+                {runningForceBuyerIntent ? (
+                  <>
+                    <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                    Re-evaluating All Leads...
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw size={14} />
+                    Force Re-evaluate All Leads
+                  </>
+                )}
+              </button>
             </div>
           </div>
         )}

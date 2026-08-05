@@ -6,6 +6,7 @@ import Settings, { defaultStages } from '../models/Settings.js';
 import LeadList from '../models/LeadList.js';
 import { syncLinkedinMessagesForAccount, checkLinkedinCookiesForAccount, fetchLinkedinProfileInfo } from '../services/linkedinService.js';
 import { updateSyncFrequency, runBackgroundSync } from '../services/cronService.js';
+import { runBuyerIntentEvaluationCron, getBuyerIntentStats } from '../services/buyerIntentService.js';
 
 const router = express.Router();
 
@@ -546,6 +547,59 @@ router.get('/conversations', async (req, res) => {
   } catch (error) {
     console.error('[API Error /conversations]:', error);
     return res.status(500).json({ error: 'Failed to fetch conversations from DB.' });
+  }
+});
+
+/**
+ * GET /api/conversations/:id
+ * Get a single conversation with messages by ID
+ */
+router.get('/conversations/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const conv = await Conversation.findById(id).lean();
+    if (!conv) {
+      return res.status(404).json({ error: 'Conversation not found.' });
+    }
+
+    const messages = await Message.find({ conversationId: conv._id }).sort({ timestamp: 1 }).lean();
+    const account = await Account.findById(conv.accountId).lean();
+
+    const formatted = {
+      id: conv._id.toString(),
+      _id: conv._id.toString(),
+      accountId: conv.accountId ? conv.accountId.toString() : 'acc_1',
+      accountName: conv.accountName || account?.name || 'LinkedIn Account',
+      accountAvatar: account?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80',
+      accountBadge: account?.role || 'Sales Rep',
+      prospect: conv.prospect,
+      leadStage: conv.leadStage || 'Interested',
+      isUnread: Boolean(conv.isUnread),
+      isStarred: Boolean(conv.isStarred),
+      isArchived: Boolean(conv.isArchived),
+      needsReply: Boolean(conv.needsReply),
+      lastMessage: messages.length > 0 ? messages[messages.length - 1].content : 'No messages yet',
+      timestamp: new Date(conv.lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timeAgo: formatTimeAgo(conv.lastMessageAt),
+      tags: conv.tags || ['Inbound'],
+      type: 'LinkedIn DM',
+      aiAnalysis: conv.aiAnalysis || null,
+      messages: messages.map(m => ({
+        id: m._id.toString(),
+        sender: m.sender,
+        senderName: m.senderName,
+        senderAvatar: m.senderAvatar,
+        content: m.content,
+        channel: m.channel || 'LinkedIn DM',
+        timestamp: m.timestamp ? new Date(m.timestamp).toISOString() : new Date().toISOString(),
+        isInternal: Boolean(m.isInternal)
+      }))
+    };
+
+    return res.json(formatted);
+  } catch (error) {
+    console.error('[API Error GET /conversations/:id]:', error);
+    return res.status(500).json({ error: 'Failed to fetch conversation.' });
   }
 });
 
@@ -1172,6 +1226,40 @@ router.put('/settings/ai/prompts/:id', async (req, res) => {
   } catch (error) {
     console.error('[API Error PUT /settings/ai/prompts/:id]:', error);
     return res.status(500).json({ error: 'Failed to update AI prompt.' });
+  }
+});
+
+/**
+ * GET /api/settings/buyer-intent/status
+ * Get buyer intent execution statistics & status
+ */
+router.get('/settings/buyer-intent/status', async (req, res) => {
+  try {
+    const stats = await getBuyerIntentStats();
+    return res.json(stats);
+  } catch (error) {
+    console.error('[API Error GET /settings/buyer-intent/status]:', error);
+    return res.status(500).json({ error: 'Failed to fetch buyer intent status.' });
+  }
+});
+
+/**
+ * POST /api/settings/buyer-intent/run
+ * Manually trigger buyer intent evaluation for leads with empty or stale scores (>12h)
+ */
+router.post('/settings/buyer-intent/run', async (req, res) => {
+  try {
+    const forceAll = Boolean(req.body?.forceAll);
+    const result = await runBuyerIntentEvaluationCron(true, forceAll);
+    const updatedStats = await getBuyerIntentStats();
+    return res.json({
+      message: 'Buyer intent evaluation executed successfully.',
+      result,
+      stats: updatedStats
+    });
+  } catch (error) {
+    console.error('[API Error POST /settings/buyer-intent/run]:', error);
+    return res.status(500).json({ error: 'Failed to execute buyer intent evaluation.' });
   }
 });
 

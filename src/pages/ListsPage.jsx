@@ -131,10 +131,10 @@ export default function ListsPage() {
   };
 
   return (
-    <div style={{ display: 'flex', background: T.bg, minHeight: '100vh', fontFamily: '-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",sans-serif' }}>
+    <div className="app" style={{ display: 'flex', background: T.bg, height: '100vh', width: '100vw', overflow: 'hidden', fontFamily: '-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",sans-serif' }}>
       <Sidebar unreadCount={0} activePage="lists" />
 
-      <main style={{ flex: 1, padding: '40px 48px', overflowY: 'auto', maxWidth: 1200, margin: '0 auto', width: '100%' }}>
+      <main style={{ flex: 1, height: '100vh', overflowY: 'auto', padding: '40px 48px', maxWidth: 1200, margin: '0 auto', width: '100%' }}>
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 36 }}>

@@ -26,7 +26,9 @@ const conversationSchema = new mongoose.Schema({
   lastResponseAt: { type: Date, index: true },
   tags: [{ type: String }],
   lists: [{ type: mongoose.Schema.Types.ObjectId, ref: 'LeadList' }],
-  aiAnalysis: { type: mongoose.Schema.Types.Mixed, default: null }
+  aiAnalysis: { type: mongoose.Schema.Types.Mixed, default: null },
+  buyerIntentScore: { type: Number, default: null, index: true },
+  buyerIntentEvaluatedAt: { type: Date, default: null, index: true }
 }, {
   timestamps: true
 });

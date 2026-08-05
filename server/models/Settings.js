@@ -108,7 +108,8 @@ const settingsSchema = new mongoose.Schema({
   pipelineStages: { type: [pipelineStageSchema], default: defaultStages },
   deepseekApiKey: { type: String, default: '' },
   aiPrompts: { type: [aiPromptSchema], default: defaultPrompts },
-  lastSyncRunAt: { type: Date }
+  lastSyncRunAt: { type: Date },
+  lastBuyerIntentRunAt: { type: Date }
 }, {
   timestamps: true
 });

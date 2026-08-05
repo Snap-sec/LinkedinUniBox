@@ -1,11 +1,13 @@
-import React, { useState, useEffect, memo } from 'react';
+import React, { useState, useEffect, useCallback, memo } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
+import ChatWindow from '../components/ChatWindow';
 import {
   Search, ExternalLink, MessageSquare,
   ChevronDown, Calendar, Filter, X,
   ChevronLeft, ChevronRight, UserCheck, Inbox, ArrowLeft,
-  ArrowUp, ArrowDown, Sparkles
+  ArrowUp, ArrowDown, Sparkles, Maximize2
 } from 'lucide-react';
 import { API_BASE } from '../config';
 
@@ -129,7 +131,7 @@ const TD = memo(function TD({ children, right = false, isLast = false }) {
 
 // ─── Memoized Table Row ───────────────────────────────────────────────────────
 const LeadTableRow = memo(function LeadTableRow({
-  lead, isLast, availableStages, updatingId, onStateChange, onNavigateChat, formatDate, formatRelativeDate
+  lead, isLast, availableStages, updatingId, onStateChange, onNavigateChat, onOpenDrawer, formatDate, formatRelativeDate
 }) {
   const s = getStageStyle(lead.state);
 
@@ -138,18 +140,24 @@ const LeadTableRow = memo(function LeadTableRow({
       {/* Prospect */}
       <TD isLast={isLast}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <img
-            src={lead.avatar}
-            alt={lead.name}
-            loading="lazy"
-            decoding="async"
-            style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', border: `1px solid ${T.border}`, flexShrink: 0 }}
-          />
-          <span style={{ fontSize: 13, fontWeight: 500, color: T.text, whiteSpace: 'nowrap' }}>
-            {lead.name}
-          </span>
+          <div
+            onClick={() => onOpenDrawer(lead.id)}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+            title="Click to view conversation in drawer"
+          >
+            <img
+              src={lead.avatar}
+              alt={lead.name}
+              loading="lazy"
+              decoding="async"
+              style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', border: `1px solid ${T.border}`, flexShrink: 0 }}
+            />
+            <span style={{ fontSize: 13, fontWeight: 600, color: T.text, whiteSpace: 'nowrap' }} className="lead-name-link">
+              {lead.name}
+            </span>
+          </div>
           {lead.profileUrl && lead.profileUrl !== '#' && (
-            <a href={lead.profileUrl} target="_blank" rel="noopener noreferrer" style={{ color: T.textMuted, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+            <a href={lead.profileUrl} target="_blank" rel="noopener noreferrer" style={{ color: T.textMuted, display: 'flex', alignItems: 'center', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
               <ExternalLink size={11} strokeWidth={2} />
             </a>
           )}
@@ -210,7 +218,7 @@ const LeadTableRow = memo(function LeadTableRow({
               borderRadius: '50%',
               background: lead.buyingIntentScore >= 70 ? '#22C55E' : lead.buyingIntentScore >= 40 ? '#F59E0B' : '#9CA3AF'
             }} />
-            {lead.buyingIntentScore}% {lead.buyingIntentLabel ? `(${lead.buyingIntentLabel})` : ''}
+            {lead.buyingIntentScore}%
           </div>
         ) : (
           <span style={{ fontSize: 12, color: T.textMuted }}>—</span>
@@ -252,7 +260,7 @@ const LeadTableRow = memo(function LeadTableRow({
       {/* Action */}
       <TD right isLast={isLast}>
         <button
-          onClick={onNavigateChat}
+          onClick={() => onOpenDrawer(lead.id)}
           className="ghost-btn"
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 4,
@@ -266,6 +274,156 @@ const LeadTableRow = memo(function LeadTableRow({
         </button>
       </TD>
     </tr>
+  );
+});
+
+// ─── Memoized Chat Slide-over Drawer ─────────────────────────────────────────
+const LeadChatDrawer = memo(function LeadChatDrawer({ leadId, onClose, onStateChange, navigate, onOpen }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [shouldRender, setShouldRender] = useState(false);
+  const [drawerConv, setDrawerConv] = useState(null);
+  const [loadingDrawerConv, setLoadingDrawerConv] = useState(false);
+
+  const handleClose = useCallback(() => {
+    setIsOpen(false);
+    const timer = setTimeout(() => {
+      setShouldRender(false);
+      setDrawerConv(null);
+      onClose();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  useEffect(() => {
+    if (leadId) {
+      if (onOpen) onOpen();
+      setShouldRender(true);
+      const timer = requestAnimationFrame(() => {
+        requestAnimationFrame(() => setIsOpen(true));
+      });
+      fetchDrawerConversation(leadId);
+      return () => cancelAnimationFrame(timer);
+    } else {
+      setIsOpen(false);
+      const timer = setTimeout(() => setShouldRender(false), 250);
+      return () => clearTimeout(timer);
+    }
+  }, [leadId, onOpen]);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') handleClose();
+    };
+    if (shouldRender) {
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [shouldRender, handleClose]);
+
+  const fetchDrawerConversation = async (id) => {
+    setLoadingDrawerConv(true);
+    try {
+      const res = await fetch(`${API_BASE}/conversations/${id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setDrawerConv(data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch drawer conversation:', e);
+    } finally {
+      setLoadingDrawerConv(false);
+    }
+  };
+
+  const handleDrawerSendMessage = async (text, attachments, aiDraftUsed) => {
+    if (!leadId) return;
+    try {
+      const res = await fetch(`${API_BASE}/conversations/${leadId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: text, attachments, aiDraftUsed })
+      });
+      if (res.ok) {
+        const newMsg = await res.json();
+        setDrawerConv(prev => prev ? {
+          ...prev,
+          messages: [...(prev.messages || []), newMsg]
+        } : prev);
+      }
+    } catch (e) {
+      console.error('Failed to send message in drawer:', e);
+    }
+  };
+
+  const handleDrawerAddNote = async (text) => {
+    if (!leadId) return;
+    try {
+      const res = await fetch(`${API_BASE}/conversations/${leadId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: text, isInternal: true })
+      });
+      if (res.ok) {
+        const newMsg = await res.json();
+        setDrawerConv(prev => prev ? {
+          ...prev,
+          messages: [...(prev.messages || []), newMsg]
+        } : prev);
+      }
+    } catch (e) {
+      console.error('Failed to save note in drawer:', e);
+    }
+  };
+
+  const handleDrawerUpdateStage = async (id, stage) => {
+    if (onStateChange) await onStateChange(id, stage);
+    setDrawerConv(prev => prev ? { ...prev, leadStage: stage } : prev);
+  };
+
+  const handleDrawerToggleStar = async (id) => {
+    if (!drawerConv) return;
+    const newStar = !drawerConv.isStarred;
+    setDrawerConv(prev => prev ? { ...prev, isStarred: newStar } : prev);
+    try {
+      await fetch(`${API_BASE}/conversations/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isStarred: newStar })
+      });
+    } catch (e) {
+      console.error('Failed to update star in drawer:', e);
+    }
+  };
+
+  if (!shouldRender && !leadId) return null;
+
+  return createPortal(
+    <div
+      className={`chat-drawer-overlay ${isOpen ? 'open' : ''}`}
+      onClick={handleClose}
+    >
+      <div
+        className="chat-drawer-content"
+        onClick={e => e.stopPropagation()}
+      >
+        {loadingDrawerConv || !drawerConv ? (
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9CA3AF', fontSize: 13 }}>
+            Loading conversation history...
+          </div>
+        ) : (
+          <ChatWindow
+            conversation={drawerConv}
+            onSendMessage={handleDrawerSendMessage}
+            onAddInternalNote={handleDrawerAddNote}
+            onUpdateLeadStage={handleDrawerUpdateStage}
+            onToggleStar={handleDrawerToggleStar}
+            onOpenFullPage={() => navigate(`/chats/${leadId}`)}
+            onCloseDrawer={handleClose}
+          />
+        )}
+      </div>
+    </div>,
+    document.body
   );
 });
 
@@ -352,6 +510,19 @@ export default function LeadsPage() {
     }
   }, [searchQuery]);
 
+  // Drawer states
+  const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
+  const [drawerLeadId, setDrawerLeadId] = useState(null);
+
+  // Derived: filter drawer can only be open when chat drawer is closed
+  const filterDrawerVisible = isFilterDrawerOpen && !drawerLeadId;
+
+  const handleCloseDrawer = useCallback(() => setDrawerLeadId(null), []);
+  const handleOpenDrawer = useCallback((id) => {
+    setIsFilterDrawerOpen(false);
+    setDrawerLeadId(id);
+  }, []);
+
   useEffect(() => {
     try {
       localStorage.setItem('leads_filter_sources', JSON.stringify(selectedSources));
@@ -409,9 +580,6 @@ export default function LeadsPage() {
       console.warn('Failed to save buyer intent to localStorage', e);
     }
   }, [selectedBuyerIntent]);
-
-  // Drawer state
-  const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
 
   // Sorting state
   const [sortBy, setSortBy] = useState('createdAt');
@@ -655,7 +823,10 @@ export default function LeadsPage() {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <button
-              onClick={() => setIsFilterDrawerOpen(true)}
+              onClick={() => {
+                setDrawerLeadId(null);
+                setIsFilterDrawerOpen(true);
+              }}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6,
                 padding: '8px 14px', borderRadius: 8, background: isAnyFilterActive ? '#EFF6FF' : T.surface,
@@ -871,6 +1042,7 @@ export default function LeadsPage() {
                     updatingId={updatingId}
                     onStateChange={handleStateChange}
                     onNavigateChat={() => navigate(`/chats/${lead.id}`)}
+                    onOpenDrawer={handleOpenDrawer}
                     formatDate={formatDate}
                     formatRelativeDate={formatRelativeDate}
                   />
@@ -942,43 +1114,46 @@ export default function LeadsPage() {
         </div>
 
         {/* ── Drawer Backdrop Overlay ───────────────────────────────────────── */}
-        <div
-          onClick={() => setIsFilterDrawerOpen(false)}
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(15, 23, 42, 0.2)',
-            zIndex: 1000,
-            opacity: isFilterDrawerOpen ? 1 : 0,
-            visibility: isFilterDrawerOpen ? 'visible' : 'hidden',
-            transition: 'opacity 0.22s ease-out, visibility 0.22s ease-out',
-            willChange: 'opacity'
-          }}
-        />
+        {!drawerLeadId && (
+          <div
+            onClick={() => setIsFilterDrawerOpen(false)}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(15, 23, 42, 0.2)',
+              zIndex: 1000,
+              opacity: filterDrawerVisible ? 1 : 0,
+              visibility: filterDrawerVisible ? 'visible' : 'hidden',
+              transition: 'opacity 0.22s ease-out, visibility 0.22s ease-out',
+              willChange: 'opacity'
+            }}
+          />
+        )}
 
         {/* ── Filter Drawer ─────────────────────────────────────────────────── */}
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            right: 0,
-            bottom: 0,
-            width: 360,
-            background: '#FFFFFF',
-            boxShadow: isFilterDrawerOpen ? '-8px 0 32px rgba(15, 23, 42, 0.08)' : 'none',
-            zIndex: 1001,
-            display: 'flex',
-            flexDirection: 'column',
-            transform: isFilterDrawerOpen ? 'translateX(0)' : 'translateX(100%)',
-            transition: 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
-            willChange: 'transform',
-            fontFamily: 'inherit',
-            boxSizing: 'border-box'
-          }}
-        >
+        {!drawerLeadId && (
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              right: 0,
+              bottom: 0,
+              width: 360,
+              background: '#FFFFFF',
+              boxShadow: filterDrawerVisible ? '-8px 0 32px rgba(15, 23, 42, 0.08)' : 'none',
+              zIndex: 1001,
+              display: 'flex',
+              flexDirection: 'column',
+              transform: filterDrawerVisible ? 'translateX(0)' : 'translateX(100%)',
+              transition: 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+              willChange: 'transform',
+              fontFamily: 'inherit',
+              boxSizing: 'border-box'
+            }}
+          >
 
           {/* Drawer Header */}
           <div style={{
@@ -1290,6 +1465,16 @@ export default function LeadsPage() {
             </button>
           </div>
         </div>
+        )}
+
+      {/* ── Chat Slide-over Drawer ────────────────────────────────────────── */}
+      <LeadChatDrawer
+        leadId={drawerLeadId}
+        onClose={handleCloseDrawer}
+        onOpen={() => setIsFilterDrawerOpen(false)}
+        onStateChange={handleStateChange}
+        navigate={navigate}
+      />
 
       </main>
     </div>

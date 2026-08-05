@@ -1,6 +1,7 @@
 import Account from '../models/Account.js';
 import Settings from '../models/Settings.js';
 import { syncLinkedinMessagesForAccount, checkLinkedinCookiesForAccount } from './linkedinService.js';
+import { runBuyerIntentEvaluationCron } from './buyerIntentService.js';
 
 let isSyncRunning = false;
 let syncIntervalTimer = null;
@@ -8,6 +9,8 @@ let currentIntervalMs = 30000;
 
 let isCookieCheckRunning = false;
 let cookieCheckTimer = null;
+
+let buyerIntentTimer = null;
 
 /**
  * Perform background cookie health check for all accounts in MongoDB every 1 minute
@@ -127,6 +130,7 @@ export async function startSyncCron() {
   currentIntervalMs = Math.max(10000, Math.round(mins * 60 * 1000));
   console.log(`[Cron Scheduler] Initialized background LinkedIn refetch cron job every ${mins} min(s) (${currentIntervalMs / 1000}s).`);
   console.log(`[Cron Scheduler] Initialized 1-minute background cookie check cron job.`);
+  console.log(`[Cron Scheduler] Initialized 12-hour background Buyer Intent evaluation cron job.`);
 
   // 1. Run 1-minute cookie check after 2s, then every 60,000ms
   setTimeout(() => {
@@ -144,5 +148,16 @@ export async function startSyncCron() {
   // Set recurring interval for message sync
   if (syncIntervalTimer) clearInterval(syncIntervalTimer);
   syncIntervalTimer = setInterval(runBackgroundSync, currentIntervalMs);
+
+  // 3. Buyer Intent Cron: first run 10s after startup, then every hour check for leads > 12h
+  setTimeout(() => {
+    runBuyerIntentEvaluationCron();
+  }, 10000);
+
+  if (buyerIntentTimer) clearInterval(buyerIntentTimer);
+  buyerIntentTimer = setInterval(() => {
+    runBuyerIntentEvaluationCron();
+  }, 3600000); // Hourly check for leads due for evaluation
 }
+
 

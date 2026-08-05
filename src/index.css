@@ -352,6 +352,9 @@ input, select, textarea { font-family: inherit; }
   flex-direction: column;
   background: var(--white);
   min-width: 0;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* Chat Header */
@@ -1045,4 +1048,48 @@ main::-webkit-scrollbar-track {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+/* ── Smooth Chat Drawer Slide-over ────────────────────────────────────────── */
+.chat-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, visibility;
+}
+
+.chat-drawer-overlay.open {
+  opacity: 1;
+  visibility: visible;
+}
+
+.chat-drawer-content {
+  width: 80vw;
+  max-width: 880px;
+  height: 100vh;
+  max-height: 100vh;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.18);
+  transform: translateX(100%);
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
+  overflow: hidden;
+}
+
+.chat-drawer-overlay.open .chat-drawer-content {
+  transform: translateX(0);
+}
+
+.messages-area {
+  will-change: transform;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }

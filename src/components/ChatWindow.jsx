@@ -1,9 +1,9 @@
-import React, { useState, useEffect, memo } from 'react';
+import React, { useState, useEffect, useRef, memo } from 'react';
 import {
   Send, Paperclip, Smile, Clock, FileText, StickyNote, MessageSquare,
   PanelRightClose, PanelRightOpen, Sparkles, AlertCircle, Brain,
   Check, ArrowRight, Target, Zap, ShieldAlert, RefreshCw, Key,
-  Copy, CornerDownLeft
+  Copy, CornerDownLeft, Maximize2, X, ExternalLink
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '../config';
@@ -53,7 +53,8 @@ const MessageRow = memo(function MessageRow({ msg, prospectAvatar, accountAvatar
 export default memo(function ChatWindow({
   conversation, onSendMessage, onAddInternalNote,
   onUpdateLeadStage, onOpenTemplatePicker,
-  isDrawerOpen, onToggleDrawer, onToggleStar
+  isDrawerOpen, onToggleDrawer, onToggleStar,
+  onOpenFullPage, onCloseDrawer
 }) {
   const navigate = useNavigate();
   const [text, setText] = useState('');
@@ -62,6 +63,7 @@ export default memo(function ChatWindow({
   const [activeTab, setActiveTab] = useState('conversation');
   const [copiedMsgIdx, setCopiedMsgIdx] = useState(null);
   const [usedMsgIdx, setUsedMsgIdx] = useState(null);
+  const messagesEndRef = useRef(null);
 
   // AI Generation State
   const [aiData, setAiData] = useState(conversation?.aiAnalysis || null);
@@ -72,6 +74,12 @@ export default memo(function ChatWindow({
     setAiData(conversation?.aiAnalysis || null);
     setAiError(null);
   }, [conversation?.id, conversation?.aiAnalysis]);
+
+  useEffect(() => {
+    if (activeTab === 'conversation') {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [conversation?.id, conversation?.messages?.length, activeTab]);
 
   if (!conversation) {
     return (
@@ -156,10 +164,29 @@ export default memo(function ChatWindow({
           </div>
         </div>
 
-        <div className="chat-header-right">
-          <button className="icon-btn" onClick={onToggleDrawer}>
-            {isDrawerOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
+        <div className="chat-header-right" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button
+            className="icon-btn"
+            title="Open Full Page Chat"
+            onClick={() => {
+              if (onOpenFullPage) onOpenFullPage();
+              else navigate(`/chats/${conversation.id}`);
+            }}
+          >
+            <Maximize2 size={16} />
           </button>
+
+          {onToggleDrawer && (
+            <button className="icon-btn" title="Toggle Info Panel" onClick={onToggleDrawer}>
+              {isDrawerOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
+            </button>
+          )}
+
+          {onCloseDrawer && (
+            <button className="icon-btn" title="Close Drawer" onClick={onCloseDrawer}>
+              <X size={18} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -235,6 +262,7 @@ export default memo(function ChatWindow({
                 accountName={accountName}
               />
             ))}
+            <div ref={messagesEndRef} style={{ height: 1 }} />
           </div>
 
           {/* Composer */}
