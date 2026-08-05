@@ -514,3 +514,103 @@ export async function syncLinkedinMessagesForAccount(accountDoc, rawCookies) {
   };
 }
 
+/**
+ * Check if account cookies are valid by calling https://www.linkedin.com/mysettings-api/settingsApiMiniProfile
+ * Updates account status to 'expired' if cookies are invalid or expired
+ */
+export async function checkLinkedinCookiesForAccount(accountDoc) {
+  if (!accountDoc || !accountDoc.cookies || (Array.isArray(accountDoc.cookies) && accountDoc.cookies.length === 0)) {
+    console.warn(`[Cookie Health Check Warning] Account "${accountDoc?.name}" has missing/empty cookies. Marking status as EXPIRED.`);
+    accountDoc.status = 'expired';
+    accountDoc.lastCookieCheckAt = new Date();
+    await accountDoc.save();
+    return false;
+  }
+
+  const { headers } = prepareLinkedinHeaders(accountDoc.cookies);
+
+  try {
+    console.log(`[Cookie Health Check] Checking cookie status for "${accountDoc.name}" via GET https://www.linkedin.com/mysettings-api/settingsApiMiniProfile...`);
+    const res = await axios.get('https://www.linkedin.com/mysettings-api/settingsApiMiniProfile', {
+      headers: {
+        ...headers,
+        'accept': 'application/json, text/plain, */*'
+      },
+      timeout: 10000
+    });
+
+    if (res.status === 200 && res.data) {
+      console.log(`[Cookie Health Check Success] Account "${accountDoc.name}" returned 200 OK. Cookies are VALID.`);
+      if (accountDoc.status === 'expired' || accountDoc.status === 'disconnected') {
+        accountDoc.status = 'active';
+      }
+      accountDoc.lastCookieCheckAt = new Date();
+      await accountDoc.save();
+      return true;
+    } else {
+      console.warn(`[Cookie Health Check Failed] Account "${accountDoc.name}" returned status ${res.status}. Marking status as EXPIRED.`);
+      accountDoc.status = 'expired';
+      accountDoc.lastCookieCheckAt = new Date();
+      await accountDoc.save();
+      return false;
+    }
+  } catch (err) {
+    const statusCode = err.response?.status || 'Error';
+    console.warn(`[Cookie Health Check Failed] Account "${accountDoc.name}" check failed (${statusCode}: ${err.message}). Marking status as EXPIRED.`);
+    accountDoc.status = 'expired';
+    accountDoc.lastCookieCheckAt = new Date();
+    await accountDoc.save();
+    return false;
+  }
+}
+
+/**
+ * Helper to fetch LinkedIn user profile info (name, role/headline, avatar) using settingsApiMiniProfile API
+ */
+export async function fetchLinkedinProfileInfo(cookies) {
+  if (!cookies || (Array.isArray(cookies) && cookies.length === 0)) {
+    return null;
+  }
+
+  const { headers } = prepareLinkedinHeaders(cookies);
+
+  try {
+    const res = await axios.get('https://www.linkedin.com/mysettings-api/settingsApiMiniProfile', {
+      headers: {
+        ...headers,
+        'accept': 'application/json, text/plain, */*'
+      },
+      timeout: 10000
+    });
+
+    if (res.status === 200 && res.data && res.data.data) {
+      const data = res.data.data;
+      const firstName = data.firstName || '';
+      const lastName = data.lastName || '';
+      const name = `${firstName} ${lastName}`.trim() || 'LinkedIn Member';
+      const role = data.headline?.trim() || 'SDR';
+      let avatar = null;
+
+      if (data.picture && data.picture.rootUrl && Array.isArray(data.picture.artifacts) && data.picture.artifacts.length > 0) {
+        const artifact = data.picture.artifacts.find(a => a.width === 200) || data.picture.artifacts[0];
+        if (artifact && artifact.fileIdentifyingUrlPathSegment) {
+          avatar = `${data.picture.rootUrl}${artifact.fileIdentifyingUrlPathSegment}`;
+        }
+      }
+
+      return {
+        name,
+        role,
+        avatar,
+        url: data.url,
+        raw: data
+      };
+    }
+  } catch (err) {
+    console.warn(`[LinkedIn Profile Info Fetch Failed]: ${err.message}`);
+  }
+  return null;
+}
+
+
+

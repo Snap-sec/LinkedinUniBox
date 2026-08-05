@@ -4,10 +4,103 @@ import Conversation from '../models/Conversation.js';
 import Message from '../models/Message.js';
 import Settings, { defaultStages } from '../models/Settings.js';
 import LeadList from '../models/LeadList.js';
-import { syncLinkedinMessagesForAccount } from '../services/linkedinService.js';
+import { syncLinkedinMessagesForAccount, checkLinkedinCookiesForAccount, fetchLinkedinProfileInfo } from '../services/linkedinService.js';
 import { updateSyncFrequency, runBackgroundSync } from '../services/cronService.js';
 
 const router = express.Router();
+
+/**
+ * POST /api/accounts/extension-connect
+ * Endpoint specifically built for the Chrome Extension to automatically capture and submit LinkedIn session cookies
+ */
+router.post('/accounts/extension-connect', async (req, res) => {
+  try {
+    const { cookies, name, email, role } = req.body;
+    console.log(`\n==================================================`);
+    console.log(`[Extension API Endpoint] Received automated cookie sync request from Chrome Extension.`);
+    
+    if (!cookies || (!Array.isArray(cookies) && typeof cookies !== 'string')) {
+      return res.status(400).json({ error: 'No cookies payload provided by extension.' });
+    }
+
+    let parsedCookies = cookies;
+    if (typeof cookies === 'string') {
+      try {
+        parsedCookies = JSON.parse(cookies);
+      } catch (e) {
+        return res.status(400).json({ error: 'Cookies string could not be parsed.' });
+      }
+    }
+
+    const liAtCookie = Array.isArray(parsedCookies) ? parsedCookies.find(c => c.name === 'li_at') : null;
+    const jsessionCookie = Array.isArray(parsedCookies) ? parsedCookies.find(c => c.name === 'JSESSIONID') : null;
+
+    if (!liAtCookie || !liAtCookie.value) {
+      return res.status(400).json({ error: 'LinkedIn authentication cookie (li_at) not found in browser session.' });
+    }
+
+    // Auto-resolve live profile info (Name, Designation/Role, Avatar) from settingsApiMiniProfile
+    const profileInfo = await fetchLinkedinProfileInfo(parsedCookies);
+
+    const accountName = profileInfo?.name || name || 'LinkedIn Member';
+    const accountRole = profileInfo?.role || role || 'SDR';
+    const accountEmail = email || '';
+    const avatar = profileInfo?.avatar;
+
+    console.log(`[Extension API Endpoint] Resolved Profile Info:`);
+    console.log(`  - Name: "${accountName}"`);
+    console.log(`  - Role/Designation: "${accountRole}"`);
+    console.log(`  - Avatar: ${avatar || 'Default'}`);
+
+    const updateData = {
+      name: accountName,
+      role: accountRole,
+      email: accountEmail,
+      cookies: parsedCookies,
+      liAtToken: liAtCookie.value,
+      jsessionId: jsessionCookie?.value || '',
+      status: 'active'
+    };
+
+    if (avatar) {
+      updateData.avatar = avatar;
+    }
+
+    // Save or update Account in MongoDB (match by liAtToken or name)
+    let account = await Account.findOne({ liAtToken: liAtCookie.value });
+    if (!account) {
+      account = await Account.findOne({ name: accountName });
+    }
+
+    if (account) {
+      Object.assign(account, updateData);
+      await account.save();
+    } else {
+      account = await Account.create(updateData);
+    }
+
+    // Trigger immediate LinkedIn inbox sync
+    const syncResult = await syncLinkedinMessagesForAccount(account, parsedCookies);
+
+    return res.json({
+      success: true,
+      message: 'Extension connected account successfully and synced LinkedIn messages!',
+      account: {
+        id: account._id,
+        name: account.name,
+        role: account.role,
+        avatar: account.avatar,
+        email: account.email,
+        status: account.status,
+        syncedMessages: syncResult.messagesSynced
+      }
+    });
+
+  } catch (error) {
+    console.error('[API Error /accounts/extension-connect]:', error);
+    return res.status(500).json({ error: 'Failed to process extension cookies.', details: error.message });
+  }
+});
 
 /**
  * POST /api/auth/login
@@ -67,9 +160,10 @@ router.get('/accounts', async (req, res) => {
       status: acc.status || 'active',
       unreadCount: 0,
       dailyUsage: `${acc.syncedMessageCount || 0}/100`,
-      healthScore: 98,
+      healthScore: acc.status === 'expired' ? 0 : 98,
       proxyLocation: 'US-East',
-      lastSyncAt: acc.lastSyncAt
+      lastSyncAt: acc.lastSyncAt,
+      lastCookieCheckAt: acc.lastCookieCheckAt
     }));
 
     return res.json([allOption, ...formattedAccounts]);
@@ -77,6 +171,94 @@ router.get('/accounts', async (req, res) => {
     return res.status(500).json({ error: 'Failed to fetch accounts.' });
   }
 });
+
+/**
+ * POST /api/accounts/check-cookies
+ * Trigger an immediate cookie validity check for all connected LinkedIn accounts
+ */
+router.post('/accounts/check-cookies', async (req, res) => {
+  try {
+    const accounts = await Account.find();
+    const results = [];
+    for (const acc of accounts) {
+      const isValid = await checkLinkedinCookiesForAccount(acc);
+      results.push({ id: acc._id, name: acc.name, status: acc.status, isValid });
+    }
+    return res.json({ message: 'Cookie health check completed.', accounts: results });
+  } catch (error) {
+    console.error('[API Error /accounts/check-cookies]:', error);
+    return res.status(500).json({ error: 'Failed to execute cookie health check.', details: error.message });
+  }
+});
+
+/**
+ * PATCH /api/accounts/:id/cookies
+ * Update cookies for an existing account and re-verify session status
+ */
+router.patch('/accounts/:id/cookies', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { cookies } = req.body;
+
+    if (!cookies) {
+      return res.status(400).json({ error: 'Cookies payload is required.' });
+    }
+
+    let parsedCookies = cookies;
+    if (typeof cookies === 'string') {
+      try {
+        parsedCookies = JSON.parse(cookies);
+      } catch (err) {
+        return res.status(400).json({ error: 'Invalid JSON cookies format. Please provide valid JSON array.' });
+      }
+    }
+
+    if (!Array.isArray(parsedCookies) || parsedCookies.length === 0) {
+      return res.status(400).json({ error: 'Cookies must be a non-empty array of cookie objects.' });
+    }
+
+    const liAtCookie = parsedCookies.find(c => c.name === 'li_at');
+    const jsessionCookie = parsedCookies.find(c => c.name === 'JSESSIONID');
+
+    if (!liAtCookie || !liAtCookie.value) {
+      return res.status(400).json({ error: 'li_at cookie token is missing in the provided cookies array.' });
+    }
+
+    const account = await Account.findById(id);
+    if (!account) {
+      return res.status(404).json({ error: 'Account not found.' });
+    }
+
+    account.cookies = parsedCookies;
+    account.liAtToken = liAtCookie.value;
+    if (jsessionCookie?.value) {
+      account.jsessionId = jsessionCookie.value;
+    }
+    await account.save();
+
+    // Re-verify cookie health immediately against LinkedIn mysettings-api
+    const isValid = await checkLinkedinCookiesForAccount(account);
+
+    // If valid, trigger background sync
+    if (isValid) {
+      syncLinkedinMessagesForAccount(account, parsedCookies).catch(e => console.error('[Update Cookies Sync Error]:', e));
+    }
+
+    return res.json({
+      success: true,
+      message: isValid
+        ? 'Cookies updated and session verified successfully! (200 OK)'
+        : 'Cookies updated, but session verification failed (Cookies expired or invalid).',
+      isValid,
+      account
+    });
+  } catch (error) {
+    console.error('[API Error PATCH /accounts/:id/cookies]:', error);
+    return res.status(500).json({ error: 'Failed to update cookies.', details: error.message });
+  }
+});
+
+
 
 /**
  * POST /api/accounts/add
@@ -108,18 +290,32 @@ router.post('/accounts/add', async (req, res) => {
       return res.status(400).json({ error: 'li_at cookie token is missing in the provided cookies array.' });
     }
 
+    // Auto-resolve live profile info (Name, Designation/Role, Avatar) from settingsApiMiniProfile
+    const profileInfo = await fetchLinkedinProfileInfo(parsedCookies);
+
+    const accountName = profileInfo?.name || name || 'LinkedIn Member';
+    const accountRole = profileInfo?.role || role || 'SDR';
+    const accountEmail = email || '';
+    const avatar = profileInfo?.avatar;
+
+    const updateFields = {
+      name: accountName,
+      role: accountRole,
+      email: accountEmail,
+      cookies: parsedCookies,
+      liAtToken: liAtCookie.value,
+      jsessionId: jsessionCookie?.value || '',
+      status: 'active'
+    };
+
+    if (avatar) {
+      updateFields.avatar = avatar;
+    }
+
     // 1. Save or update Account document in MongoDB
     const account = await Account.findOneAndUpdate(
-      { name },
-      {
-        name,
-        role: role || 'Account Executive',
-        email: email || '',
-        cookies: parsedCookies,
-        liAtToken: liAtCookie.value,
-        jsessionId: jsessionCookie?.value || '',
-        status: 'active'
-      },
+      { name: accountName },
+      updateFields,
       { upsert: true, returnDocument: 'after', new: true }
     );
 
