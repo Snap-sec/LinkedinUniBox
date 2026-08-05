@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    body {
+      width: 320px;
+      padding: 16px;
+      margin: 0;
+      background: #09090b;
+      color: #f4f4f5;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #27272a;
+    }
+    .logo-badge {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: #0077b5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      color: #fff;
+    }
+    .title-area h2 {
+      font-size: 14px;
+      margin: 0;
+      font-weight: 600;
+    }
+    .title-area p {
+      font-size: 11px;
+      margin: 2px 0 0 0;
+      color: #a1a1aa;
+    }
+    .form-group {
+      margin-bottom: 12px;
+    }
+    label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      color: #a1a1aa;
+      margin-bottom: 4px;
+    }
+    input {
+      width: 100%;
+      padding: 8px 10px;
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 6px;
+      color: #f4f4f5;
+      font-size: 12px;
+      outline: none;
+    }
+    input:focus {
+      border-color: #3b82f6;
+    }
+    .btn {
+      width: 100%;
+      padding: 10px;
+      background: #2563eb;
+      color: #ffffff;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background 0.15s ease;
+    }
+    .btn:hover { background: #1d4ed8; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .status-msg {
+      margin-top: 12px;
+      font-size: 11px;
+      border-radius: 6px;
+      padding: 8px;
+      display: none;
+    }
+    .status-msg.success { background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
+    .status-msg.error { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+    .footer-text {
+      margin-top: 14px;
+      font-size: 10px;
+      color: #71717a;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo-badge">in</div>
+    <div class="title-area">
+      <h2>OneInbox Connector</h2>
+      <p>Sync LinkedIn Session to Platform</p>
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label for="memberName">Sales Member Name</label>
+    <input type="text" id="memberName" placeholder="e.g. Imran Parray" value="Imran Parray">
+  </div>
+
+  <div class="form-group">
+    <label for="memberRole">Role / Title</label>
+    <input type="text" id="memberRole" placeholder="e.g. Senior Account Executive" value="Account Executive">
+  </div>
+
+  <div class="form-group">
+    <label for="apiEndpoint">Platform API URL</label>
+    <input type="text" id="apiEndpoint" value="http://localhost:5000/api/accounts/extension-connect">
+  </div>
+
+  <button id="connectBtn" class="btn">
+    <span>Connect & Sync Account</span>
+  </button>
+
+  <div id="statusMsg" class="status-msg"></div>
+
+  <div class="footer-text">
+    Make sure you are logged into LinkedIn in this browser.
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
