@@ -49,9 +49,15 @@ export default function AccountSelectorModal({ isOpen, onClose, selectedAccountI
                   </div>
                 </div>
                 <div className="acct-row-right" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span className={`score-chip ${acc.healthScore > 80 ? 'good' : 'warn'}`}>
-                    {acc.healthScore || 98}%
-                  </span>
+                  {acc.status === 'expired' ? (
+                    <span style={{ fontSize: 11, fontWeight: 700, backgroundColor: '#fef2f2', color: '#dc2626', border: '1px solid #fee2e2', padding: '2px 8px', borderRadius: '100px' }}>
+                      Expired
+                    </span>
+                  ) : (
+                    <span className={`score-chip ${acc.healthScore > 80 ? 'good' : 'warn'}`}>
+                      {acc.healthScore || 98}%
+                    </span>
+                  )}
                   <span style={{ fontSize: 11, color: '#737373' }}>{acc.dailyUsage || '0/100'}</span>
                   <button
                     className={`action-btn ${selectedAccountId === acc.id ? 'primary' : ''}`}

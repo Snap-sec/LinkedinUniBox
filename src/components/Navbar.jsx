@@ -136,7 +136,11 @@ export default function Navbar({
                         {acc.unreadCount}
                       </span>
                     )}
-                    {acc.status === 'warning' ? (
+                    {acc.status === 'expired' ? (
+                      <span style={{ fontSize: 10, fontWeight: 700, backgroundColor: '#fef2f2', color: '#dc2626', border: '1px solid #fee2e2', padding: '1px 6px', borderRadius: '9999px' }}>
+                        Expired
+                      </span>
+                    ) : acc.status === 'warning' ? (
                       <AlertTriangle size={14} style={{ color: '#d97706' }} />
                     ) : (
                       <CheckCircle2 size={14} style={{ color: '#16a34a' }} />

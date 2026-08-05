@@ -4,7 +4,7 @@ import Sidebar from '../components/Sidebar';
 import {
   Trash2, Clock, CheckCircle2, AlertCircle,
   RefreshCw, Globe, Check, Plus, Shield,
-  Download, Play, Puzzle
+  Download, Play, Puzzle, Key, X
 } from 'lucide-react';
 import { API_BASE } from '../config';
 
@@ -86,13 +86,69 @@ export default function AccountsPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
 
+  const [isCheckingCookies, setIsCheckingCookies] = useState(false);
+
+  // Update Cookie Modal state
+  const [cookieModalAccount, setCookieModalAccount] = useState(null);
+  const [cookieInputText, setCookieInputText] = useState('');
+  const [isUpdatingCookies, setIsUpdatingCookies] = useState(false);
+  const [cookieUpdateError, setCookieUpdateError] = useState('');
+  const [cookieUpdateSuccess, setCookieUpdateSuccess] = useState('');
+
+  const handleOpenCookieModal = (acc) => {
+    setCookieModalAccount(acc);
+    setCookieInputText('');
+    setCookieUpdateError('');
+    setCookieUpdateSuccess('');
+  };
+
+  const handleSubmitCookieUpdate = async (e) => {
+    if (e) e.preventDefault();
+    if (!cookieModalAccount) return;
+
+    if (!cookieInputText || !cookieInputText.trim()) {
+      setCookieUpdateError('Please paste the cookie JSON payload.');
+      return;
+    }
+
+    setIsUpdatingCookies(true);
+    setCookieUpdateError('');
+    setCookieUpdateSuccess('');
+
+    try {
+      const accId = cookieModalAccount.id || cookieModalAccount._id;
+      const res = await fetch(`${API_BASE}/accounts/${accId}/cookies`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cookies: cookieInputText.trim() })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setCookieUpdateError(data.error || 'Failed to update cookies.');
+      } else {
+        setCookieUpdateSuccess(data.message || 'Cookies updated and session verified successfully!');
+        await fetchAccounts();
+        setTimeout(() => {
+          setCookieModalAccount(null);
+          setCookieUpdateSuccess('');
+        }, 1200);
+      }
+    } catch (err) {
+      setCookieUpdateError('Failed to update cookies: ' + err.message);
+    } finally {
+      setIsUpdatingCookies(false);
+    }
+  };
+
   useEffect(() => {
     fetchAccounts();
     fetchSettings();
+    const interval = setInterval(fetchAccounts, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   const fetchAccounts = async () => {
-    setIsLoading(true);
     try {
       const res = await fetch(`${API_BASE}/accounts`);
       if (res.ok) {
@@ -139,6 +195,15 @@ export default function AccountsPage() {
     finally { setIsSyncing(false); }
   };
 
+  const handleCheckCookies = async () => {
+    setIsCheckingCookies(true);
+    try {
+      const res = await fetch(`${API_BASE}/accounts/check-cookies`, { method: 'POST' });
+      if (res.ok) await fetchAccounts();
+    } catch (e) { console.error(e); }
+    finally { setIsCheckingCookies(false); }
+  };
+
   const handleDeleteAccount = async (id, name) => {
     if (!window.confirm(`Remove "${name}"? All synced data will be permanently deleted.`)) return;
     setDeletingId(id);
@@ -149,9 +214,12 @@ export default function AccountsPage() {
     finally { setDeletingId(null); }
   };
 
-  const getStatus = (lastSyncAt) => {
-    if (!lastSyncAt) return { label: 'Disconnected', color: 'red', icon: AlertCircle };
-    const mins = (Date.now() - new Date(lastSyncAt).getTime()) / 60000;
+  const getStatus = (acc) => {
+    if (!acc) return { label: 'Disconnected', color: 'red', icon: AlertCircle };
+    if (acc.status === 'expired') return { label: 'Account Expired', color: 'red', icon: AlertCircle };
+    if (acc.status === 'disconnected') return { label: 'Disconnected', color: 'red', icon: AlertCircle };
+    if (!acc.lastSyncAt) return { label: 'Disconnected', color: 'red', icon: AlertCircle };
+    const mins = (Date.now() - new Date(acc.lastSyncAt).getTime()) / 60000;
     const threshold = Math.max(3, syncFrequency * 3);
     if (mins <= threshold) return { label: 'Connected', color: 'green', icon: CheckCircle2 };
     if (mins <= threshold * 2) return { label: 'Syncing', color: 'orange', icon: RefreshCw };
@@ -341,30 +409,87 @@ export default function AccountsPage() {
           </div>
         </div>
 
+        {/* ── Expired Accounts Alert Box ─────────────────────────────────────── */}
+        {accounts.some(a => a.status === 'expired') && (
+          <div style={{
+            background: '#FEF2F2', border: '1px solid #FEE2E2', borderRadius: 12,
+            padding: '16px 20px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 14,
+            boxShadow: '0 2px 6px rgba(220,38,38,0.06)'
+          }}>
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#FEE2E2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <AlertCircle size={20} color="#DC2626" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#991B1B', marginBottom: 2 }}>
+                LinkedIn Account Cookies Expired
+              </div>
+              <div style={{ fontSize: 13, color: '#B91C1C', lineHeight: 1.4 }}>
+                One or more accounts have expired session cookies. Use our Chrome Extension or re-connect the account to restore background sync.
+              </div>
+            </div>
+            <button
+              onClick={() => navigate('/accounts/add')}
+              style={{
+                padding: '7px 14px', background: '#DC2626', color: '#fff',
+                borderRadius: 8, fontSize: 12, fontWeight: 600, border: 'none',
+                cursor: 'pointer', whiteSpace: 'nowrap'
+              }}
+            >
+              Re-connect Account
+            </button>
+          </div>
+        )}
+
         {/* ── Accounts Table ────────────────────────────────────────────────── */}
         <div style={{ background: T.surface, borderRadius: 12, border: `1px solid ${T.border}`, overflow: 'hidden' }}>
           {/* Toolbar */}
           <div style={{ padding: '14px 24px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>
-              {accounts.length} account{accounts.length !== 1 ? 's' : ''}
-            </span>
-            <button
-              onClick={handleTriggerSync}
-              disabled={isSyncing}
-              className="ghost-btn"
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '6px 12px', background: T.surface,
-                border: `1px solid ${T.border}`, borderRadius: 7,
-                fontSize: 12, fontWeight: 500, color: T.textSecondary,
-                cursor: isSyncing ? 'not-allowed' : 'pointer',
-                opacity: isSyncing ? 0.6 : 1,
-                transition: 'background 0.15s ease',
-              }}
-            >
-              <RefreshCw size={13} strokeWidth={2} style={{ animation: isSyncing ? 'spin 0.8s linear infinite' : 'none' }} />
-              {isSyncing ? 'Syncing…' : 'Sync now'}
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>
+                {accounts.length} account{accounts.length !== 1 ? 's' : ''}
+              </span>
+              <span style={{ fontSize: 11, color: T.textMuted, background: '#F3F4F6', padding: '2px 8px', borderRadius: 100 }}>
+                Automatic 1-min cookie check active
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                onClick={handleCheckCookies}
+                disabled={isCheckingCookies}
+                className="ghost-btn"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '6px 12px', background: T.surface,
+                  border: `1px solid ${T.border}`, borderRadius: 7,
+                  fontSize: 12, fontWeight: 500, color: T.textSecondary,
+                  cursor: isCheckingCookies ? 'not-allowed' : 'pointer',
+                  opacity: isCheckingCookies ? 0.6 : 1,
+                  transition: 'background 0.15s ease',
+                }}
+              >
+                <RefreshCw size={13} strokeWidth={2} style={{ animation: isCheckingCookies ? 'spin 0.8s linear infinite' : 'none' }} />
+                {isCheckingCookies ? 'Checking cookies…' : 'Check cookies'}
+              </button>
+
+              <button
+                onClick={handleTriggerSync}
+                disabled={isSyncing}
+                className="ghost-btn"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '6px 12px', background: T.surface,
+                  border: `1px solid ${T.border}`, borderRadius: 7,
+                  fontSize: 12, fontWeight: 500, color: T.textSecondary,
+                  cursor: isSyncing ? 'not-allowed' : 'pointer',
+                  opacity: isSyncing ? 0.6 : 1,
+                  transition: 'background 0.15s ease',
+                }}
+              >
+                <RefreshCw size={13} strokeWidth={2} style={{ animation: isSyncing ? 'spin 0.8s linear infinite' : 'none' }} />
+                {isSyncing ? 'Syncing…' : 'Sync now'}
+              </button>
+            </div>
           </div>
 
           {/* Content */}
@@ -409,7 +534,7 @@ export default function AccountsPage() {
               </thead>
               <tbody>
                 {accounts.map((acc, idx) => {
-                  const status = getStatus(acc.lastSyncAt);
+                  const status = getStatus(acc);
                   const isLast = idx === accounts.length - 1;
                   const accId = acc.id || acc._id;
                   return (
@@ -433,7 +558,14 @@ export default function AccountsPage() {
 
                       {/* Status */}
                       <TD isLast={isLast}>
-                        <ConnectionBadge status={status} />
+                        <div>
+                          <ConnectionBadge status={status} />
+                          {acc.lastCookieCheckAt && (
+                            <div style={{ fontSize: 10, color: T.textMuted, marginTop: 3 }}>
+                              Checked {formatLastSync(acc.lastCookieCheckAt)}
+                            </div>
+                          )}
+                        </div>
                       </TD>
 
                       {/* Last sync */}
@@ -444,25 +576,42 @@ export default function AccountsPage() {
                         </div>
                       </TD>
 
-                      {/* Remove */}
+                      {/* Actions */}
                       <TD right isLast={isLast}>
-                        <button
-                          onClick={() => handleDeleteAccount(accId, acc.name)}
-                          disabled={deletingId === accId}
-                          className="ghost-btn"
-                          style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 4,
-                            padding: '5px 10px', background: T.surface,
-                            border: `1px solid ${T.border}`, borderRadius: 6,
-                            fontSize: 12, fontWeight: 500, color: '#DC2626',
-                            cursor: deletingId === accId ? 'not-allowed' : 'pointer',
-                            opacity: deletingId === accId ? 0.5 : 1,
-                            transition: 'background 0.15s ease',
-                          }}
-                        >
-                          <Trash2 size={12} strokeWidth={2} />
-                          {deletingId === accId ? 'Removing…' : 'Remove'}
-                        </button>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
+                          <button
+                            onClick={() => handleOpenCookieModal(acc)}
+                            className="ghost-btn"
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 4,
+                              padding: '5px 10px', background: T.surface,
+                              border: `1px solid ${T.border}`, borderRadius: 6,
+                              fontSize: 12, fontWeight: 500, color: '#0071e3',
+                              cursor: 'pointer', transition: 'background 0.15s ease',
+                            }}
+                          >
+                            <Key size={12} strokeWidth={2} />
+                            Update Cookies
+                          </button>
+
+                          <button
+                            onClick={() => handleDeleteAccount(accId, acc.name)}
+                            disabled={deletingId === accId}
+                            className="ghost-btn"
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 4,
+                              padding: '5px 10px', background: T.surface,
+                              border: `1px solid ${T.border}`, borderRadius: 6,
+                              fontSize: 12, fontWeight: 500, color: '#DC2626',
+                              cursor: deletingId === accId ? 'not-allowed' : 'pointer',
+                              opacity: deletingId === accId ? 0.5 : 1,
+                              transition: 'background 0.15s ease',
+                            }}
+                          >
+                            <Trash2 size={12} strokeWidth={2} />
+                            {deletingId === accId ? 'Removing…' : 'Remove'}
+                          </button>
+                        </div>
                       </TD>
                     </tr>
                   );
@@ -471,6 +620,111 @@ export default function AccountsPage() {
             </table>
           )}
         </div>
+
+        {/* ── Update Cookies Modal ────────────────────────────────────────────── */}
+        {cookieModalAccount && (
+          <div
+            style={{
+              position: 'fixed', inset: 0, zIndex: 1000,
+              background: 'rgba(0, 0, 0, 0.45)', backdropFilter: 'blur(4px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+            }}
+            onClick={() => setCookieModalAccount(null)}
+          >
+            <div
+              style={{
+                background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`,
+                width: '100%', maxWidth: 540, boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                overflow: 'hidden', animation: 'fadeIn 0.15s ease'
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div style={{
+                padding: '18px 24px', borderBottom: `1px solid ${T.border}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#FAFAFA'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <img src={cookieModalAccount.avatar} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', border: `1px solid ${T.border}` }} />
+                  <div>
+                    <h3 style={{ fontSize: 15, fontWeight: 600, color: T.text, margin: 0 }}>
+                      Update Cookies — {cookieModalAccount.name}
+                    </h3>
+                    <span style={{ fontSize: 11, color: T.textMuted }}>Paste updated session cookies to refresh authentication</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setCookieModalAccount(null)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: T.textMuted }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <form onSubmit={handleSubmitCookieUpdate} style={{ padding: '24px' }}>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 6 }}>
+                    Raw Cookies JSON Payload
+                  </label>
+                  <textarea
+                    rows={8}
+                    value={cookieInputText}
+                    onChange={e => { setCookieInputText(e.target.value); setCookieUpdateError(''); }}
+                    placeholder='Paste JSON cookies array exported from browser extension (e.g. EditThisCookie or Cookie-Editor)...&#10;&#10;[{"name":"li_at","value":"AQED..."},{"name":"JSESSIONID","value":"ajax:..."}]'
+                    style={{
+                      width: '100%', padding: '10px 14px', borderRadius: 8, border: `1px solid ${cookieUpdateError ? '#ef4444' : T.border}`,
+                      fontSize: 12, fontFamily: 'monospace', color: T.text, background: '#FAFAFA',
+                      outline: 'none', resize: 'vertical', boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+
+                {cookieUpdateError && (
+                  <div style={{ padding: '10px 14px', background: '#FEF2F2', border: '1px solid #FEE2E2', borderRadius: 8, fontSize: 12, color: '#DC2626', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <AlertCircle size={15} flexShrink={0} />
+                    <span>{cookieUpdateError}</span>
+                  </div>
+                )}
+
+                {cookieUpdateSuccess && (
+                  <div style={{ padding: '10px 14px', background: '#F0FDF4', border: '1px solid #DCFCE7', borderRadius: 8, fontSize: 12, color: '#166534', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <CheckCircle2 size={15} flexShrink={0} />
+                    <span>{cookieUpdateSuccess}</span>
+                  </div>
+                )}
+
+                {/* Modal Footer */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setCookieModalAccount(null)}
+                    style={{
+                      padding: '8px 16px', background: T.surface, border: `1px solid ${T.border}`,
+                      borderRadius: 8, fontSize: 13, fontWeight: 500, color: T.textSecondary, cursor: 'pointer'
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isUpdatingCookies || !cookieInputText.trim()}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                      padding: '8px 18px', background: '#0071e3', color: '#fff',
+                      borderRadius: 8, fontSize: 13, fontWeight: 600, border: 'none',
+                      cursor: isUpdatingCookies || !cookieInputText.trim() ? 'not-allowed' : 'pointer',
+                      opacity: isUpdatingCookies || !cookieInputText.trim() ? 0.6 : 1
+                    }}
+                  >
+                    <RefreshCw size={13} style={{ animation: isUpdatingCookies ? 'spin 0.8s linear infinite' : 'none' }} />
+                    {isUpdatingCookies ? 'Verifying & Updating…' : 'Update & Verify Cookies'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
       </main>
     </div>
