@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, Check, AlertCircle, Shield, Cookie, User, Sparkles, CheckCircle2 } from 'lucide-react';
 import LinkedinIcon from '../components/LinkedinIcon';
 import { API_BASE } from '../config';
+import { useToast } from '../context/ToastContext';
 
 export default function AddAccountPage() {
   const navigate = useNavigate();
