@@ -1,0 +1,40 @@
+name: Deploy LinkedinUniBox
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.TOOLS_SERVER_HOST }}
+          username: ${{ secrets.TOOLS_SERVER_USER }}
+          key: ${{ secrets.TOOLS_SERVER_SSH_KEY }}
+          script: |
+            set -e
+
+            echo "Updating backend..."
+            cd /root/LinkedinUniBox
+            git pull
+
+            echo "Installing dependencies..."
+            npm install
+
+            echo "Restarting backend..."
+            pm2 restart linkedinbox-backend
+
+            cd /var/www/linkedinbox
+
+            git pull
+
+            echo "Building frontend..."
+            npm run build
+
+            echo "Deploying frontend..."
+            chown -R caddy:caddy /var/www/linkedinbox
