@@ -4,6 +4,21 @@ import Conversation from '../models/Conversation.js';
 import Message from '../models/Message.js';
 
 /**
+ * Helper to ensure cookie values match LinkedIn's required quote formatting (e.g. bscookie="v=1...", JSESSIONID="ajax...")
+ */
+function normalizeCookieValue(name, val) {
+  if (val === undefined || val === null) return '';
+  const str = String(val).trim();
+  if (str.startsWith('"') && str.endsWith('"')) {
+    return str;
+  }
+  if (name === 'bscookie' || name === 'bcookie' || name === 'lidc' || (name === 'JSESSIONID' && str.includes('ajax:'))) {
+    return `"${str}"`;
+  }
+  return str;
+}
+
+/**
  * Extract headers and cookie values from the input cookies array
  */
 function prepareLinkedinHeaders(cookies) {
@@ -13,23 +28,34 @@ function prepareLinkedinHeaders(cookies) {
 
   if (Array.isArray(cookies)) {
     console.log(`[Cookie Parser] Processing JSON array with ${cookies.length} cookie items.`);
-    const seenPairs = new Set();
-    cookies.forEach(c => {
-      if (c && c.name && c.value !== undefined) {
-        const pair = `${c.name}=${c.value}`;
-        if (!seenPairs.has(pair)) {
-          seenPairs.add(pair);
-          cookieHeaderStr += `${pair}; `;
-        }
-        if (c.name === 'JSESSIONID') {
-          const cleanVal = c.value.replace(/"/g, '');
-          if (cleanVal && (cleanVal.includes('ajax:') || !jsessionId)) {
-            jsessionId = cleanVal;
+    const seenNames = new Set();
+    
+    // Priority sort: valid non-empty tokens first (.www.linkedin.com & active session tokens)
+    const sortedCookies = [...cookies].sort((a, b) => {
+      const aVal = a.value ? String(a.value).trim() : '';
+      const bVal = b.value ? String(b.value).trim() : '';
+      if (!aVal && bVal) return 1;
+      if (aVal && !bVal) return -1;
+      if (a.name === 'li_at' && aVal.startsWith('AQED')) return -1;
+      if (b.name === 'li_at' && bVal.startsWith('AQED')) return 1;
+      return 0;
+    });
+
+    sortedCookies.forEach(c => {
+      if (c && c.name && c.value !== undefined && c.value !== null) {
+        const valStr = String(c.value).trim();
+        if (!valStr) return;
+
+        const formattedVal = normalizeCookieValue(c.name, valStr);
+        if (!seenNames.has(c.name)) {
+          seenNames.add(c.name);
+          cookieHeaderStr += `${c.name}=${formattedVal}; `;
+
+          if (c.name === 'JSESSIONID') {
+            jsessionId = valStr.replace(/"/g, '');
           }
-        }
-        if (c.name === 'li_at') {
-          if (c.value && (c.value.startsWith('AQED') || !liAt)) {
-            liAt = c.value;
+          if (c.name === 'li_at') {
+            liAt = valStr;
           }
         }
       }
