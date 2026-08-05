@@ -95,6 +95,38 @@ export default function AccountsPage() {
   const [cookieUpdateError, setCookieUpdateError] = useState('');
   const [cookieUpdateSuccess, setCookieUpdateSuccess] = useState('');
 
+  // Disconnect Confirmation Modal state
+  const [disconnectModalAccount, setDisconnectModalAccount] = useState(null);
+  const [shouldDeleteLeads, setShouldDeleteLeads] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+
+  const handlePromptDisconnect = (acc) => {
+    setDisconnectModalAccount(acc);
+    setShouldDeleteLeads(false);
+  };
+
+  const handleConfirmDisconnect = async () => {
+    if (!disconnectModalAccount) return;
+    const accId = disconnectModalAccount.id || disconnectModalAccount._id;
+    setIsDisconnecting(true);
+    setDeletingId(accId);
+
+    try {
+      const res = await fetch(`${API_BASE}/accounts/${accId}?deleteLeads=${shouldDeleteLeads}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        await fetchAccounts();
+        setDisconnectModalAccount(null);
+      }
+    } catch (e) {
+      console.error('Disconnect failed:', e);
+    } finally {
+      setIsDisconnecting(false);
+      setDeletingId(null);
+    }
+  };
+
   const handleOpenCookieModal = (acc) => {
     setCookieModalAccount(acc);
     setCookieInputText('');
@@ -595,7 +627,7 @@ export default function AccountsPage() {
                           </button>
 
                           <button
-                            onClick={() => handleDeleteAccount(accId, acc.name)}
+                            onClick={() => handlePromptDisconnect(acc)}
                             disabled={deletingId === accId}
                             className="ghost-btn"
                             style={{
@@ -722,6 +754,165 @@ export default function AccountsPage() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* ── Disconnect Confirmation Modal ────────────────────────────────────── */}
+        {disconnectModalAccount && (
+          <div
+            style={{
+              position: 'fixed', inset: 0, zIndex: 1000,
+              background: 'rgba(0, 0, 0, 0.45)', backdropFilter: 'blur(4px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+            }}
+            onClick={() => setDisconnectModalAccount(null)}
+          >
+            <div
+              style={{
+                background: T.surface, borderRadius: 14, border: `1px solid ${T.border}`,
+                width: '100%', maxWidth: 480, boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                overflow: 'hidden', animation: 'fadeIn 0.15s ease'
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div style={{
+                padding: '20px 24px 16px', borderBottom: `1px solid ${T.border}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#FAFAFA'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{
+                    width: 36, height: 36, borderRadius: '50%', background: '#FEF2F2',
+                    border: '1px solid #FEE2E2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+                  }}>
+                    <Trash2 size={18} color="#DC2626" />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: 15, fontWeight: 600, color: T.text, margin: 0 }}>
+                      Disconnect Account
+                    </h3>
+                    <span style={{ fontSize: 12, color: T.textMuted }}>
+                      Confirm removal of this connected account
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setDisconnectModalAccount(null)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: T.textMuted }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div style={{ padding: '20px 24px' }}>
+                {/* Account Preview Card */}
+                <div style={{
+                  padding: '12px 14px', background: '#F9FAFB', border: `1px solid ${T.border}`,
+                  borderRadius: 10, display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20
+                }}>
+                  <img
+                    src={disconnectModalAccount.avatar}
+                    alt=""
+                    style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', border: `1px solid ${T.border}` }}
+                  />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{disconnectModalAccount.name}</div>
+                    <div style={{ fontSize: 11, color: T.textMuted }}>{disconnectModalAccount.email || disconnectModalAccount.role || 'LinkedIn Account'}</div>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 10 }}>
+                  Data Retention Option:
+                </div>
+
+                {/* Option 1: Keep leads */}
+                <div
+                  style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px',
+                    borderRadius: 10, border: `1px solid ${!shouldDeleteLeads ? '#3b82f6' : T.border}`,
+                    background: !shouldDeleteLeads ? '#EFF6FF' : T.surface, cursor: 'pointer',
+                    marginBottom: 10, transition: 'all 0.15s ease'
+                  }}
+                  onClick={() => setShouldDeleteLeads(false)}
+                >
+                  <input
+                    type="radio"
+                    name="deleteLeadsOpt"
+                    checked={!shouldDeleteLeads}
+                    onChange={() => setShouldDeleteLeads(false)}
+                    style={{ marginTop: 2, cursor: 'pointer' }}
+                  />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: !shouldDeleteLeads ? '#1D4ED8' : T.text }}>
+                      Keep associated leads & chat history
+                    </div>
+                    <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2 }}>
+                      Recommended. Disconnects account session while retaining all synced prospects and conversations in database.
+                    </div>
+                  </div>
+                </div>
+
+                {/* Option 2: Delete leads */}
+                <div
+                  style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px',
+                    borderRadius: 10, border: `1px solid ${shouldDeleteLeads ? '#ef4444' : T.border}`,
+                    background: shouldDeleteLeads ? '#FEF2F2' : T.surface, cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                  onClick={() => setShouldDeleteLeads(true)}
+                >
+                  <input
+                    type="radio"
+                    name="deleteLeadsOpt"
+                    checked={shouldDeleteLeads}
+                    onChange={() => setShouldDeleteLeads(true)}
+                    style={{ marginTop: 2, cursor: 'pointer' }}
+                  />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: shouldDeleteLeads ? '#DC2626' : T.text }}>
+                      Delete all associated leads & messages
+                    </div>
+                    <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2 }}>
+                      Permanently delete all synced prospects, chat messages, and records linked to this account.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div style={{
+                padding: '16px 24px', background: '#FAFAFA', borderTop: `1px solid ${T.border}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10
+              }}>
+                <button
+                  type="button"
+                  onClick={() => setDisconnectModalAccount(null)}
+                  style={{
+                    padding: '8px 16px', background: T.surface, border: `1px solid ${T.border}`,
+                    borderRadius: 8, fontSize: 13, fontWeight: 500, color: T.textSecondary, cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDisconnect}
+                  disabled={isDisconnecting}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '8px 18px', background: '#DC2626', color: '#fff',
+                    borderRadius: 8, fontSize: 13, fontWeight: 600, border: 'none',
+                    cursor: isDisconnecting ? 'not-allowed' : 'pointer',
+                    opacity: isDisconnecting ? 0.6 : 1
+                  }}
+                >
+                  <Trash2 size={13} />
+                  {isDisconnecting ? 'Disconnecting…' : 'Disconnect Account'}
+                </button>
+              </div>
             </div>
           </div>
         )}

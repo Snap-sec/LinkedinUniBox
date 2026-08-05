@@ -406,12 +406,13 @@ router.post('/accounts/extension-connect', async (req, res) => {
 
 /**
  * DELETE /api/accounts/:id
- * Delete connected account and all associated conversations/messages from MongoDB
+ * Disconnect connected account and optionally delete all associated conversations/messages from MongoDB
  */
 router.delete('/accounts/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    console.log(`[API DELETE /api/accounts/${id}] Deleting account and associated data...`);
+    const shouldDeleteLeads = req.query.deleteLeads === 'true' || req.body?.deleteLeads === true;
+    console.log(`[API DELETE /api/accounts/${id}] Disconnecting account (deleteLeads: ${shouldDeleteLeads})...`);
 
     const account = await Account.findById(id);
     if (!account) {
@@ -419,16 +420,26 @@ router.delete('/accounts/:id', async (req, res) => {
     }
 
     await Account.findByIdAndDelete(id);
-    const deletedConvs = await Conversation.deleteMany({ accountId: id });
-    const deletedMsgs = await Message.deleteMany({ accountId: id });
 
-    console.log(`[API DELETE /api/accounts/${id}] Deleted account "${account.name}". Removed ${deletedConvs.deletedCount} conversations and ${deletedMsgs.deletedCount} messages.`);
+    let deletedConvsCount = 0;
+    let deletedMsgsCount = 0;
+
+    if (shouldDeleteLeads) {
+      const deletedConvs = await Conversation.deleteMany({ accountId: id });
+      const deletedMsgs = await Message.deleteMany({ accountId: id });
+      deletedConvsCount = deletedConvs.deletedCount;
+      deletedMsgsCount = deletedMsgs.deletedCount;
+      console.log(`[API DELETE /api/accounts/${id}] Deleted account "${account.name}". Removed ${deletedConvsCount} conversations and ${deletedMsgsCount} messages.`);
+    } else {
+      console.log(`[API DELETE /api/accounts/${id}] Disconnected account "${account.name}". Kept associated leads & conversations in DB.`);
+    }
 
     return res.json({
-      message: `Account "${account.name}" deleted successfully.`,
+      message: `Account "${account.name}" disconnected successfully.`,
       id,
-      deletedConversations: deletedConvs.deletedCount,
-      deletedMessages: deletedMsgs.deletedCount
+      deleteLeads: shouldDeleteLeads,
+      deletedConversations: deletedConvsCount,
+      deletedMessages: deletedMsgsCount
     });
   } catch (error) {
     console.error('[API Error /accounts/delete]:', error);
