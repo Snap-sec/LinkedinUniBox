@@ -5,13 +5,18 @@
   "description": "Automatically connects your LinkedIn account to the central Sales Inbox platform.",
   "permissions": [
     "cookies",
-    "activeTab"
+    "activeTab",
+    "scripting"
   ],
   "host_permissions": [
+    "https://linkedin.com/*",
     "https://*.linkedin.com/*",
+    "http://linkedin.com/*",
+    "http://*.linkedin.com/*",
     "https://linkedin.snapsec.co/*",
     "http://localhost:5000/*",
-    "http://127.0.0.1:5000/*"
+    "http://127.0.0.1:5000/*",
+    "<all_urls>"
   ],
   "action": {
     "default_popup": "popup.html",

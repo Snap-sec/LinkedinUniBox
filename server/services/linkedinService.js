@@ -13,10 +13,26 @@ function prepareLinkedinHeaders(cookies) {
 
   if (Array.isArray(cookies)) {
     console.log(`[Cookie Parser] Processing JSON array with ${cookies.length} cookie items.`);
+    const seenPairs = new Set();
     cookies.forEach(c => {
-      cookieHeaderStr += `${c.name}=${c.value}; `;
-      if (c.name === 'JSESSIONID') jsessionId = c.value.replace(/"/g, '');
-      if (c.name === 'li_at') liAt = c.value;
+      if (c && c.name && c.value !== undefined) {
+        const pair = `${c.name}=${c.value}`;
+        if (!seenPairs.has(pair)) {
+          seenPairs.add(pair);
+          cookieHeaderStr += `${pair}; `;
+        }
+        if (c.name === 'JSESSIONID') {
+          const cleanVal = c.value.replace(/"/g, '');
+          if (cleanVal && (cleanVal.includes('ajax:') || !jsessionId)) {
+            jsessionId = cleanVal;
+          }
+        }
+        if (c.name === 'li_at') {
+          if (c.value && (c.value.startsWith('AQED') || !liAt)) {
+            liAt = c.value;
+          }
+        }
+      }
     });
   } else if (typeof cookies === 'string') {
     console.log(`[Cookie Parser] Processing raw cookie header string (length: ${cookies.length}).`);
@@ -515,7 +531,7 @@ export async function syncLinkedinMessagesForAccount(accountDoc, rawCookies) {
 }
 
 /**
- * Check if account cookies are valid by calling https://www.linkedin.com/mysettings-api/settingsApiMiniProfile
+ * Check if account cookies are valid by calling mysettings-api/settingsApiMiniProfile & voyager/api/me
  * Updates account status to 'expired' if cookies are invalid or expired
  */
 export async function checkLinkedinCookiesForAccount(accountDoc) {
@@ -528,9 +544,80 @@ export async function checkLinkedinCookiesForAccount(accountDoc) {
   }
 
   const { headers } = prepareLinkedinHeaders(accountDoc.cookies);
+  let isValid = false;
 
+  // Method 1: Check mysettings-api/settingsApiMiniProfile
   try {
-    console.log(`[Cookie Health Check] Checking cookie status for "${accountDoc.name}" via GET https://www.linkedin.com/mysettings-api/settingsApiMiniProfile...`);
+    console.log(`[Cookie Health Check] Checking cookie status for "${accountDoc.name}" via settingsApiMiniProfile...`);
+    const res = await axios.get('https://www.linkedin.com/mysettings-api/settingsApiMiniProfile', {
+      headers: {
+        ...headers,
+        'accept': 'application/json, text/plain, */*'
+      },
+      timeout: 10000,
+      maxRedirects: 0,
+      validateStatus: s => s >= 200 && s < 300
+    });
+
+    if (res.status === 200 && typeof res.data === 'object' && res.data && (res.data.data || res.data.firstName)) {
+      isValid = true;
+    }
+  } catch (err) {
+    console.warn(`[Cookie Health Check Method 1 Note]: settingsApiMiniProfile check returned ${err.response?.status || err.message}`);
+  }
+
+  // Method 2: Fallback check via voyager/api/me
+  if (!isValid) {
+    try {
+      console.log(`[Cookie Health Check] Checking fallback cookie status for "${accountDoc.name}" via voyager/api/me...`);
+      const meRes = await axios.get('https://www.linkedin.com/voyager/api/me', {
+        headers: {
+          ...headers,
+          'accept': 'application/json, text/plain, */*',
+          'x-restli-protocol-version': '2.0.0'
+        },
+        timeout: 10000,
+        maxRedirects: 0,
+        validateStatus: s => s >= 200 && s < 300
+      });
+
+      if (meRes.status === 200 && typeof meRes.data === 'object' && meRes.data && (meRes.data.miniProfile || meRes.data.data)) {
+        isValid = true;
+      }
+    } catch (err) {
+      console.warn(`[Cookie Health Check Method 2 Note]: voyager/api/me check returned ${err.response?.status || err.message}`);
+    }
+  }
+
+  accountDoc.lastCookieCheckAt = new Date();
+
+  if (isValid) {
+    console.log(`[Cookie Health Check Success] Account "${accountDoc.name}" cookies are VALID.`);
+    if (accountDoc.status === 'expired' || accountDoc.status === 'disconnected') {
+      accountDoc.status = 'active';
+    }
+    await accountDoc.save();
+    return true;
+  } else {
+    console.warn(`[Cookie Health Check Failed] Account "${accountDoc.name}" check failed. Marking status as EXPIRED.`);
+    accountDoc.status = 'expired';
+    await accountDoc.save();
+    return false;
+  }
+}
+
+/**
+ * Helper to fetch LinkedIn user profile info (name, role/headline, avatar) using settingsApiMiniProfile & voyager/api/me APIs
+ */
+export async function fetchLinkedinProfileInfo(cookies) {
+  if (!cookies || (Array.isArray(cookies) && cookies.length === 0)) {
+    return null;
+  }
+
+  const { headers } = prepareLinkedinHeaders(cookies);
+
+  // Method 1: Try settingsApiMiniProfile
+  try {
     const res = await axios.get('https://www.linkedin.com/mysettings-api/settingsApiMiniProfile', {
       headers: {
         ...headers,
@@ -540,54 +627,10 @@ export async function checkLinkedinCookiesForAccount(accountDoc) {
     });
 
     if (res.status === 200 && res.data) {
-      console.log(`[Cookie Health Check Success] Account "${accountDoc.name}" returned 200 OK. Cookies are VALID.`);
-      if (accountDoc.status === 'expired' || accountDoc.status === 'disconnected') {
-        accountDoc.status = 'active';
-      }
-      accountDoc.lastCookieCheckAt = new Date();
-      await accountDoc.save();
-      return true;
-    } else {
-      console.warn(`[Cookie Health Check Failed] Account "${accountDoc.name}" returned status ${res.status}. Marking status as EXPIRED.`);
-      accountDoc.status = 'expired';
-      accountDoc.lastCookieCheckAt = new Date();
-      await accountDoc.save();
-      return false;
-    }
-  } catch (err) {
-    const statusCode = err.response?.status || 'Error';
-    console.warn(`[Cookie Health Check Failed] Account "${accountDoc.name}" check failed (${statusCode}: ${err.message}). Marking status as EXPIRED.`);
-    accountDoc.status = 'expired';
-    accountDoc.lastCookieCheckAt = new Date();
-    await accountDoc.save();
-    return false;
-  }
-}
-
-/**
- * Helper to fetch LinkedIn user profile info (name, role/headline, avatar) using settingsApiMiniProfile API
- */
-export async function fetchLinkedinProfileInfo(cookies) {
-  if (!cookies || (Array.isArray(cookies) && cookies.length === 0)) {
-    return null;
-  }
-
-  const { headers } = prepareLinkedinHeaders(cookies);
-
-  try {
-    const res = await axios.get('https://www.linkedin.com/mysettings-api/settingsApiMiniProfile', {
-      headers: {
-        ...headers,
-        'accept': 'application/json, text/plain, */*'
-      },
-      timeout: 10000
-    });
-
-    if (res.status === 200 && res.data && res.data.data) {
-      const data = res.data.data;
+      const data = res.data.data || res.data;
       const firstName = data.firstName || '';
       const lastName = data.lastName || '';
-      const name = `${firstName} ${lastName}`.trim() || 'LinkedIn Member';
+      const fullName = `${firstName} ${lastName}`.trim();
       const role = data.headline?.trim() || 'SDR';
       let avatar = null;
 
@@ -598,17 +641,51 @@ export async function fetchLinkedinProfileInfo(cookies) {
         }
       }
 
-      return {
-        name,
-        role,
-        avatar,
-        url: data.url,
-        raw: data
-      };
+      if (fullName && fullName !== 'LinkedIn Member') {
+        return {
+          name: fullName,
+          role,
+          avatar,
+          url: data.url,
+          raw: data
+        };
+      }
     }
   } catch (err) {
-    console.warn(`[LinkedIn Profile Info Fetch Failed]: ${err.message}`);
+    console.warn(`[LinkedIn Profile Info settingsApiMiniProfile Failed]: ${err.message}`);
   }
+
+  // Method 2: Try voyager/api/me fallback
+  try {
+    const meRes = await axios.get('https://www.linkedin.com/voyager/api/me', {
+      headers: {
+        ...headers,
+        'accept': 'application/json, text/plain, */*',
+        'x-restli-protocol-version': '2.0.0'
+      },
+      timeout: 10000
+    });
+
+    if (meRes.status === 200 && meRes.data) {
+      const mini = meRes.data.miniProfile || meRes.data.data?.miniProfile || meRes.data;
+      const firstName = mini.firstName || '';
+      const lastName = mini.lastName || '';
+      const fullName = `${firstName} ${lastName}`.trim();
+      const role = mini.occupation?.trim() || 'SDR';
+
+      if (fullName && fullName !== 'LinkedIn Member') {
+        return {
+          name: fullName,
+          role,
+          avatar: null,
+          raw: meRes.data
+        };
+      }
+    }
+  } catch (err) {
+    console.warn(`[LinkedIn Profile Info voyager/api/me Failed]: ${err.message}`);
+  }
+
   return null;
 }
 

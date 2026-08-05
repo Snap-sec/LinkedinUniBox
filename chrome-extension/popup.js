@@ -15,72 +15,180 @@ document.addEventListener('DOMContentLoaded', async () => {
     statusMsg.textContent = text;
   }
 
-  // 1. Fetch cookies and query settingsApiMiniProfile
+  // Get ALL LinkedIn cookies across all subdomains (.www.linkedin.com, www.linkedin.com, .linkedin.com, linkedin.com)
+  async function getAllLinkedinCookies() {
+    const cookieMap = new Map();
+
+    // Strategy A: Global query for all cookies in browser profile
+    try {
+      const allBrowserCookies = await new Promise(resolve => chrome.cookies.getAll({}, resolve));
+      if (allBrowserCookies && Array.isArray(allBrowserCookies)) {
+        for (const c of allBrowserCookies) {
+          if (c.domain && c.domain.includes('linkedin.com')) {
+            const key = `${c.name}:${c.domain}:${c.path || '/'}`;
+            cookieMap.set(key, c);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Global cookie fetch failed:', e);
+    }
+
+    // Strategy B: Specific URL & domain targets as fallback
+    const targets = [
+      { url: 'https://www.linkedin.com' },
+      { url: 'https://linkedin.com' },
+      { url: 'https://www.linkedin.com/mysettings-api/settingsApiMiniProfile' },
+      { domain: 'linkedin.com' },
+      { domain: '.linkedin.com' },
+      { domain: 'www.linkedin.com' },
+      { domain: '.www.linkedin.com' }
+    ];
+
+    for (const target of targets) {
+      try {
+        const cookies = await new Promise(resolve => chrome.cookies.getAll(target, resolve));
+        if (cookies && Array.isArray(cookies)) {
+          for (const c of cookies) {
+            const key = `${c.name}:${c.domain}:${c.path || '/'}`;
+            if (!cookieMap.has(key)) {
+              cookieMap.set(key, c);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Targeted cookie query failed:', target, e);
+      }
+    }
+
+    const result = Array.from(cookieMap.values());
+    console.log(`[Extension Cookie Collector] Captured ${result.length} total LinkedIn cookies.`);
+    return result;
+  }
+
+  // 1. Fetch comprehensive cookies and query profile endpoints
   async function initSessionCheck() {
     if (!chrome || !chrome.cookies) {
       showStatus('Chrome extension cookie permission missing.', true);
       return;
     }
 
-    chrome.cookies.getAll({ domain: 'linkedin.com' }, async (cookies) => {
-      if (!cookies || cookies.length === 0) {
-        showStatus('No LinkedIn cookies found. Please log into LinkedIn in this browser.', true);
-        return;
-      }
+    const cookies = await getAllLinkedinCookies();
+    if (!cookies || cookies.length === 0) {
+      showStatus('No LinkedIn cookies found. Please log into LinkedIn in this browser.', true);
+      return;
+    }
 
-      const liAtCookie = cookies.find(c => c.name === 'li_at');
-      if (!liAtCookie) {
-        showStatus('li_at session cookie not found. Please log into LinkedIn in this browser.', true);
-        return;
-      }
+    const liAtCookie = cookies.find(c => c.name === 'li_at' && c.value);
+    if (!liAtCookie) {
+      showStatus('li_at session cookie not found. Please log into LinkedIn in this browser.', true);
+      return;
+    }
 
-      const jsessionCookie = cookies.find(c => c.name === 'JSESSIONID');
-      const csrfToken = jsessionCookie ? jsessionCookie.value.replace(/"/g, '') : '';
-      const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+    const jsessionCookie = cookies.find(c => c.name === 'JSESSIONID' && c.value);
+    const csrfToken = jsessionCookie ? jsessionCookie.value.replace(/"/g, '') : '';
 
-      // Query settingsApiMiniProfile directly from extension
-      try {
-        const miniProfileRes = await fetch('https://www.linkedin.com/mysettings-api/settingsApiMiniProfile', {
-          headers: {
-            'Cookie': cookieHeader,
-            'csrf-token': csrfToken,
-            'accept': 'application/json, text/plain, */*'
-          }
-        });
+    // Method 1: Query settingsApiMiniProfile with credentials include
+    try {
+      const miniProfileRes = await fetch('https://www.linkedin.com/mysettings-api/settingsApiMiniProfile', {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'csrf-token': csrfToken,
+          'accept': 'application/json, text/plain, */*'
+        }
+      });
 
-        if (miniProfileRes.ok) {
-          const profileData = await miniProfileRes.json();
-          if (profileData && profileData.data) {
-            const data = profileData.data;
-            const firstName = data.firstName || '';
-            const lastName = data.lastName || '';
-            const fullName = `${firstName} ${lastName}`.trim();
-            if (fullName) detectedProfile.name = fullName;
-            detectedProfile.role = data.headline?.trim() || 'SDR';
+      if (miniProfileRes.ok) {
+        const profileData = await miniProfileRes.json();
+        const data = profileData.data || profileData;
+        if (data && (data.firstName || data.lastName)) {
+          const fullName = `${data.firstName || ''} ${data.lastName || ''}`.trim();
+          if (fullName) detectedProfile.name = fullName;
+          if (data.headline) detectedProfile.role = data.headline.trim();
 
-            if (data.picture && data.picture.rootUrl && Array.isArray(data.picture.artifacts) && data.picture.artifacts.length > 0) {
-              const artifact = data.picture.artifacts.find(a => a.width === 200) || data.picture.artifacts[0];
-              if (artifact && artifact.fileIdentifyingUrlPathSegment) {
-                detectedProfile.avatar = `${data.picture.rootUrl}${artifact.fileIdentifyingUrlPathSegment}`;
-              }
+          if (data.picture && data.picture.rootUrl && Array.isArray(data.picture.artifacts) && data.picture.artifacts.length > 0) {
+            const artifact = data.picture.artifacts.find(a => a.width === 200) || data.picture.artifacts[0];
+            if (artifact && artifact.fileIdentifyingUrlPathSegment) {
+              detectedProfile.avatar = `${data.picture.rootUrl}${artifact.fileIdentifyingUrlPathSegment}`;
             }
           }
         }
+      }
+    } catch (err) {
+      console.warn('settingsApiMiniProfile fetch error in extension:', err);
+    }
+
+    // Method 2: Query voyager/api/me as fallback
+    if (!detectedProfile.name) {
+      try {
+        const meRes = await fetch('https://www.linkedin.com/voyager/api/me', {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'csrf-token': csrfToken,
+            'accept': 'application/json, text/plain, */*',
+            'x-restli-protocol-version': '2.0.0'
+          }
+        });
+
+        if (meRes.ok) {
+          const meData = await meRes.json();
+          const mini = meData.miniProfile || meData.data?.miniProfile || meData;
+          if (mini && (mini.firstName || mini.lastName)) {
+            detectedProfile.name = `${mini.firstName || ''} ${mini.lastName || ''}`.trim();
+            if (mini.occupation) detectedProfile.role = mini.occupation.trim();
+          }
+        }
       } catch (err) {
-        console.warn('MiniProfile fetch error in extension (backend fallback active):', err);
+        console.warn('Voyager /me fetch error in extension:', err);
       }
+    }
 
-      // Display detected profile card
-      accountCard.style.display = 'flex';
-      accountName.textContent = detectedProfile.name || 'LinkedIn Member';
-      accountRole.textContent = detectedProfile.role || 'SDR';
-      if (detectedProfile.avatar) {
-        accountAvatar.src = detectedProfile.avatar;
+    // Method 3: DOM Inspection on active tab if user is on linkedin.com
+    if (!detectedProfile.name && chrome.tabs) {
+      try {
+        const tabs = await new Promise(resolve => chrome.tabs.query({ active: true, currentWindow: true }, resolve));
+        if (tabs && tabs[0] && tabs[0].url && tabs[0].url.includes('linkedin.com')) {
+          const results = await new Promise(resolve => {
+            if (chrome.scripting) {
+              chrome.scripting.executeScript({
+                target: { tabId: tabs[0].id },
+                func: () => {
+                  const img = document.querySelector('img.global-nav__me-photo, img[alt^="Profile photo of"]');
+                  if (img && img.alt) {
+                    return img.alt.replace(/^Profile photo of\s*/i, '').trim();
+                  }
+                  const nameEl = document.querySelector('.global-nav__me-photo-img, .profile-rail-card__actor-link');
+                  if (nameEl && nameEl.textContent) {
+                    return nameEl.textContent.trim();
+                  }
+                  return null;
+                }
+              }, resolve);
+            } else {
+              resolve(null);
+            }
+          });
+          if (results && results[0] && results[0].result) {
+            detectedProfile.name = results[0].result;
+          }
+        }
+      } catch (e) {
+        console.warn('Tab script execution error:', e);
       }
+    }
 
-      // Auto submit cookies to platform backend
-      autoSubmitCookies(cookies);
-    });
+    // Display detected profile card
+    accountCard.style.display = 'flex';
+    accountName.textContent = detectedProfile.name || 'LinkedIn Member';
+    accountRole.textContent = detectedProfile.role || 'SDR';
+    if (detectedProfile.avatar) {
+      accountAvatar.src = detectedProfile.avatar;
+    }
+
+    // Auto submit cookies with detected name to platform backend
+    autoSubmitCookies(cookies);
   }
 
   async function autoSubmitCookies(cookies) {
@@ -94,7 +202,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       domain: c.domain,
       path: c.path,
       secure: c.secure,
-      httpOnly: c.httpOnly
+      httpOnly: c.httpOnly,
+      expirationDate: c.expirationDate || null
     }));
 
     try {

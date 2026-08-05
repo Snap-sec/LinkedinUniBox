@@ -39,11 +39,12 @@ router.post('/accounts/extension-connect', async (req, res) => {
       return res.status(400).json({ error: 'LinkedIn authentication cookie (li_at) not found in browser session.' });
     }
 
-    // Auto-resolve live profile info (Name, Designation/Role, Avatar) from settingsApiMiniProfile
+    // Auto-resolve live profile info (Name, Designation/Role, Avatar)
     const profileInfo = await fetchLinkedinProfileInfo(parsedCookies);
 
-    const accountName = profileInfo?.name || name || 'LinkedIn Member';
-    const accountRole = profileInfo?.role || role || 'SDR';
+    const validPassedName = (name && typeof name === 'string' && name.trim() && name.trim() !== 'LinkedIn Member') ? name.trim() : null;
+    const accountName = validPassedName || profileInfo?.name || 'LinkedIn Member';
+    const accountRole = profileInfo?.role || (role && role !== 'SDR' ? role : null) || 'SDR';
     const accountEmail = email || '';
     const avatar = profileInfo?.avatar;
 
