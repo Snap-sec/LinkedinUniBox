@@ -270,7 +270,9 @@ export default function AccountsPage() {
     return dt.toLocaleDateString();
   };
 
-  const syncLabel = syncFrequency >= 1
+  const syncLabel = syncFrequency >= 60
+    ? `${syncFrequency / 60} hour${syncFrequency / 60 > 1 ? 's' : ''}`
+    : syncFrequency >= 1
     ? `${syncFrequency} min${syncFrequency > 1 ? 's' : ''}`
     : `${syncFrequency * 60}s`;
 
@@ -425,6 +427,8 @@ export default function AccountsPage() {
                 <option value={15}>15 minutes</option>
                 <option value={30}>30 minutes</option>
                 <option value={60}>1 hour</option>
+                <option value={360}>6 hours</option>
+                <option value={720}>12 hours</option>
               </select>
 
               {saveSuccess && (
