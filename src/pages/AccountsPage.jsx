@@ -339,7 +339,7 @@ export default function AccountsPage() {
             </p>
 
             <a
-              href="/linkedin-extension.zip"
+              href={`${API_BASE}/extension/download`}
               download="linkedin-extension.zip"
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,

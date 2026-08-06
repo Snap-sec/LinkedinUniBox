@@ -1,4 +1,7 @@
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import AdmZip from 'adm-zip';
 import Account from '../models/Account.js';
 import Conversation from '../models/Conversation.js';
 import Message from '../models/Message.js';
@@ -8,7 +11,39 @@ import { syncLinkedinMessagesForAccount, checkLinkedinCookiesForAccount, fetchLi
 import { updateSyncFrequency, runBackgroundSync } from '../services/cronService.js';
 import { runBuyerIntentEvaluationCron, getBuyerIntentStats } from '../services/buyerIntentService.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const router = express.Router();
+
+/**
+ * GET /api/extension/download
+ * Generates a ZIP archive of the chrome-extension directory on the fly and streams it for download
+ */
+router.get('/extension/download', (req, res) => {
+  try {
+    const extensionDir = path.resolve(__dirname, '../../chrome-extension');
+    const zip = new AdmZip();
+    zip.addLocalFolder(extensionDir);
+    const zipBuffer = zip.toBuffer();
+
+    res.set({
+      'Content-Type': 'application/zip',
+      'Content-Disposition': 'attachment; filename="linkedin-extension.zip"',
+      'Content-Length': zipBuffer.length,
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+
+    console.log(`[API /extension/download] Dynamically generated and served chrome-extension zip (${zipBuffer.length} bytes)`);
+    return res.send(zipBuffer);
+  } catch (error) {
+    console.error('[API Error /extension/download]:', error);
+    return res.status(500).json({ error: 'Failed to package chrome extension zip on the fly.', details: error.message });
+  }
+});
+
 
 /**
  * POST /api/accounts/extension-connect

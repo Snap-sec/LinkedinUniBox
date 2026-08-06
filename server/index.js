@@ -23,6 +23,11 @@ app.use((req, res, next) => {
 // API Routes
 app.use('/api', apiRouter);
 
+// Dynamic Extension Zip Download Fallback
+app.get('/linkedin-extension.zip', (req, res) => {
+  res.redirect('/api/extension/download');
+});
+
 // Health Endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected' });
